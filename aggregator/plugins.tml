@@ -1,0 +1,10 @@
+register("MimirAggregator", "aggregator.tap",
+         description="Mimir Feed Aggregator and Feeder",
+         type="tap", tapname="aggregator")
+
+#from twisted.scripts.mktap import _tapHelper
+#MimirAggregator = _tapHelper(
+#    "Mimir Aggregator",
+#    "aggregator.tap",
+#    "Mimir Feed Aggregator and Feeder",
+#    "aggregator")
