@@ -66,10 +66,10 @@ class AggregatorService(component.Service):
         xmlstream.addObserver('/iq[@type="set"]', self.iqFallback, -1)
         xmlstream.addObserver('/iq[@type="get"]', self.iqFallback, -1)
        
-        delay = 1
+        delay = 0
         for feed in self.feeds.itervalues():
             reactor.callLater(delay, self.start, feed)
-            delay += 1
+            delay += 5
 
     def iqFallback(self, iq):
         if iq.handled == True:
@@ -78,7 +78,7 @@ class AggregatorService(component.Service):
         self.send(xmpp_error.error_from_iq(iq, 'service-unavailable'))
 
     def start(self, feed):
-        d = fetcher.getFeed(feed['url'], self.agent)
+        d = fetcher.getFeed(feed['url'], agent=self.agent)
         d.addCallback(self.workOnPage, feed)
         d.addCallback(self.parseFeed, feed)
         d.addCallback(self.findFreshItems, feed)
