@@ -3,33 +3,71 @@ import feedparser
 import xmpp_error
 from twisted.python import log
 from twisted.internet import reactor, defer
+from twisted.persisted import sob
 from twisted.xish import domish
 from twisted.words.protocols.jabber import component, client
 
 INTERVAL=1800
 
 class AggregatorService(component.Service):
-    def componentConnected(self, xmlstream):
-        self.xmlstream = xmlstream
-        xmlstream.addObserver('/iq[@type="set"]', self.iqFallback, -1)
-        xmlstream.addObserver('/iq[@type="get"]', self.iqFallback, -1)
-        self.agent = "MimirAggregator/0.2 (http://mimir.ik.nu/)"
+    agent = "MimirAggregator/0.2 (http://mimir.ik.nu/)"
 
+    def startService(self):
+        log.msg('Starting Aggregator')
         
+        # Load feed data from persistent storage
+        try:
+            feeds = sob.load('feeds.tap', 'pickle')
+        except IOError:
+            feeds = {}
+
+        # Read feed list
         f = file('feeds')
-        lines = f.readlines()
+        feed_list = [line.split() for line in f.readlines()]
         f.close()
 
-        feeds = []
-        for line in lines:
-            (handle, url) = line.split(' ')
-            feeds.append({'handle': handle,
-                          'url': url[:-1]})
+        # Update feed data using feed list
 
-        print feeds
+        self.feeds = {}
+        for handle, url in feed_list:
+            if feeds.has_key(handle):
+                if url != feeds[handle]['url']:
+                    feeds[handle]['url'] = url
+                self.feeds[handle] = feeds[handle]
+            else:
+                self.feeds[handle] = {'handle': handle,
+                                      'url': url}
 
+        # make feeds object persistent
+        self.persistent = sob.Persistent(self.feeds, 'feeds')
+
+        component.Service.startService(self)
+
+    def stopService(self):
+        log.msg('Stopping Aggregator')
+
+        self.persistent.save()
+
+        # save feed file
+        feed_list = ["%s %s\n" % (f['handle'], f['url'])
+                     for f in self.feeds.itervalues()]
+        feed_list.sort()
+
+        f = file('feeds', 'w')
+        f.writelines(feed_list)
+        f.close()
+
+        component.Service.stopService(self)
+
+    def componentConnected(self, xmlstream):
+        self.xmlstream = xmlstream
+        self.send = xmlstream.send
+
+        xmlstream.addObserver('/iq[@type="set"]', self.iqFallback, -1)
+        xmlstream.addObserver('/iq[@type="get"]', self.iqFallback, -1)
+        
         list = []
-        for feed in feeds:
+        for feed in self.feeds.itervalues():
             list.append(self.start(feed))
         d = defer.DeferredList(list)
 
@@ -37,8 +75,7 @@ class AggregatorService(component.Service):
         if iq.handled == True:
             return
 
-        self.xmlstream.send(xmpp_error.error_from_iq(iq,
-                                                     'service-unavailable'))
+        self.send(xmpp_error.error_from_iq(iq, 'service-unavailable'))
 
     def start(self, feed):
         d = fetcher.getFeed(feed['url'], self.agent)
@@ -67,26 +104,9 @@ class AggregatorService(component.Service):
         print "%s: Title: %s " % (feed["handle"], f.feed.title.encode('utf-8'))
 
         for entry in f.entries:
-            print "%s: Entry: " % feed["handle"]
             if not entry.has_key('id'):
                 entry.id = entry.link
 
-            print "  id: %s" % entry.id
-            if entry.has_key('title'):
-                print "  title (%s): %s" % \
-                      (entry.title_detail.type,
-                       repr(entry.title_detail.value))
-#            if entry.has_key('link'):
-#                print "  link: %s" % entry.link
-#            if entry.has_key('summary'):
-#                print "  summary (%s):\n%s" % \
-#                      (entry.summary_detail.type,
-#                       repr(entry.summary_detail.value))
-#            if entry.has_key('content'):
-#                # TODO: consider other content elements, too
-#                print "  content (%s):\n%s" % \
-#                      (entry.content[0].type,
-#                       repr(entry.content[0].value))
         return f
 
     def publishEntries(self, entries, feed):
@@ -163,7 +183,7 @@ class AggregatorService(component.Service):
         print "%s: Not Modified" % feed["handle"]
 
     def reschedule(self, void, feed):
-        feed['delayed_call'] = reactor.callLater(INTERVAL, self.start, feed)
+        reactor.callLater(INTERVAL, self.start, feed)
 
     def munchError(self, failure, feed):
         print "%s: unhandled error:" % feed["handle"]
