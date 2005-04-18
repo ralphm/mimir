@@ -65,11 +65,11 @@ class AggregatorService(component.Service):
 
         xmlstream.addObserver('/iq[@type="set"]', self.iqFallback, -1)
         xmlstream.addObserver('/iq[@type="get"]', self.iqFallback, -1)
-        
-        list = []
+       
+        delay = 1
         for feed in self.feeds.itervalues():
-            list.append(self.start(feed))
-        d = defer.DeferredList(list)
+            reactor.callLater(delay, self.start, feed)
+            delay += 1
 
     def iqFallback(self, iq):
         if iq.handled == True:
