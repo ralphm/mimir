@@ -18,7 +18,8 @@ class HTTPFeedGetter(client.HTTPPageGetter):
         rl = self.headers.get("last-modified", None)
         rd = self.headers.get("date", None)
         if re or rl or rd:
-            cache = {'response': response}
+            cache = {'response': response,
+                     'url': self.factory.original_url}
             if re:
                 cache['etag'] = re[-1]
             if rl and rd:
@@ -83,7 +84,7 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
     def page(self, page):
         if self.waiting:
             self.waiting = 0
-            self.deferred.callback((page, self.original_url))
+            self.deferred.callback(self.cache[self.original_url])
 
 def getFeed(url, contextFactory=None, *args, **kwargs):
     """ Download a web page as a string, keep a cache of already downloaded

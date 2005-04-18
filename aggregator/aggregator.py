@@ -31,9 +31,15 @@ class AggregatorService(component.Service):
         self.feeds = {}
         for handle, url in feed_list:
             if feeds.has_key(handle):
-                if url != feeds[handle]['url']:
-                    feeds[handle]['url'] = url
-                self.feeds[handle] = feeds[handle]
+                feed = feeds[handle]
+
+                # track url changes, and reset cache parameters
+                if url != feed['url']:
+                    feed['url'] = url
+                    feed['etag'] = None
+                    feed['last-modified'] = None
+
+                self.feeds[handle] = feed
             else:
                 self.feeds[handle] = {'handle': handle,
                                       'url': url}
@@ -68,7 +74,15 @@ class AggregatorService(component.Service):
        
         delay = 0
         for feed in self.feeds.itervalues():
-            reactor.callLater(delay, self.start, feed)
+            headers = {}
+            etag = feed.get('etag', None)
+            last_modified = feed.get('last-modified', None)
+            if etag:
+                headers['if-none-match'] = etag
+            if last_modified:
+                headers['if-modified-since'] = last_modified
+            
+            reactor.callLater(delay, self.start, feed, headers)
             delay += 5
 
     def iqFallback(self, iq):
@@ -77,12 +91,13 @@ class AggregatorService(component.Service):
 
         self.send(xmpp_error.error_from_iq(iq, 'service-unavailable'))
 
-    def start(self, feed):
-        d = fetcher.getFeed(feed['url'], agent=self.agent)
+    def start(self, feed, headers=None):
+        d = fetcher.getFeed(feed['url'], agent=self.agent, headers=headers)
         d.addCallback(self.workOnPage, feed)
         d.addCallback(self.parseFeed, feed)
         d.addCallback(self.findFreshItems, feed)
         d.addErrback(self.notModified, feed)
+        d.addErrback(self.logNoPage, feed)
         d.addErrback(self.munchError, feed)
         d.addBoth(self.reschedule, feed)
         return d
@@ -90,13 +105,16 @@ class AggregatorService(component.Service):
     def workOnPage(self, result, feed):
         handle = feed['handle']
         print "%s: Got feed" % handle
-        data, url = result
-        if url != feed['url']:
-            print "%s: Feed's location changed permanently to %s" % \
-                  (handle, url)
-            feed['url'] = url
 
-        return data
+        feed['etag'] = result.get('etag', None)
+        feed['last-modified'] = result.get('last-modified', None)
+
+        if result['url'] != feed['url']:
+            print "%s: Feed's location changed permanently to %s" % \
+                  (handle, result['url'])
+            feed['url'] = result['url']
+
+        return result['response']
 
     def parseFeed(self, data, feed):
         f = feedparser.parse(data)
@@ -184,6 +202,11 @@ class AggregatorService(component.Service):
 
     def reschedule(self, void, feed):
         reactor.callLater(INTERVAL, self.start, feed)
+
+    def logNoPage(self, failure, feed):
+        failure.trap(fetcher.error.Error)
+        error = failure.value
+        print "%s: No page: %s" % (feed["handle"], error)
 
     def munchError(self, failure, feed):
         print "%s: unhandled error:" % feed["handle"]
