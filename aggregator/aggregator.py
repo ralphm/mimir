@@ -13,6 +13,7 @@ class AggregatorService(component.Service):
     agent = "MimirAggregator/0.2 (http://mimir.ik.nu/)"
 
     def startService(self):
+        log.FileLogObserver.timeFormat = "%Y/%m/%d %H:%M:%S %Z"
         log.msg('Starting Aggregator')
         
         # Load feed data from persistent storage
