@@ -94,16 +94,16 @@ class AggregatorService(component.Service):
 
     def start(self, feed, headers=None):
         d = fetcher.getFeed(feed['url'], agent=self.agent, headers=headers)
-        d.addCallback(self.workOnPage, feed)
+        d.addCallback(self.workOnFeed, feed)
         d.addCallback(self.parseFeed, feed)
         d.addCallback(self.findFreshItems, feed)
         d.addErrback(self.notModified, feed)
-        d.addErrback(self.logNoPage, feed)
+        d.addErrback(self.logNoFeed, feed)
         d.addErrback(self.munchError, feed)
         d.addBoth(self.reschedule, feed)
         return d
 
-    def workOnPage(self, result, feed):
+    def workOnFeed(self, result, feed):
         handle = feed['handle']
         print "%s: Got feed" % handle
 
@@ -120,7 +120,13 @@ class AggregatorService(component.Service):
     def parseFeed(self, data, feed):
         f = feedparser.parse(data)
 
-        print "%s: Title: %s " % (feed["handle"], f.feed.title.encode('utf-8'))
+        if not f.feed and f.bozo:
+            print "%s: Not a valid feed: %s: %s" % (feed["handle"],
+                                                    repr(f.bozo_exception),
+                                                    f.bozo_exception)
+        elif f.feed.title:
+            print "%s: Title: %s " % (feed["handle"],
+                                      repr(f.feed.title))
 
         for entry in f.entries:
             if not entry.has_key('id'):
@@ -204,10 +210,10 @@ class AggregatorService(component.Service):
     def reschedule(self, void, feed):
         reactor.callLater(INTERVAL, self.start, feed)
 
-    def logNoPage(self, failure, feed):
+    def logNoFeed(self, failure, feed):
         failure.trap(fetcher.error.Error)
         error = failure.value
-        print "%s: No page: %s" % (feed["handle"], error)
+        print "%s: No feed: %s" % (feed["handle"], error)
 
     def munchError(self, failure, feed):
         print "%s: unhandled error:" % feed["handle"]
