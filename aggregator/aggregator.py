@@ -1,5 +1,4 @@
 import fetcher
-import feedparser
 import xmpp_error
 from twisted.python import log
 from twisted.internet import reactor, defer
@@ -95,7 +94,6 @@ class AggregatorService(component.Service):
     def start(self, feed, headers=None):
         d = fetcher.getFeed(feed['url'], agent=self.agent, headers=headers)
         d.addCallback(self.workOnFeed, feed)
-        d.addCallback(self.parseFeed, feed)
         d.addCallback(self.findFreshItems, feed)
         d.addErrback(self.notModified, feed)
         d.addErrback(self.logNoFeed, feed)
@@ -104,35 +102,29 @@ class AggregatorService(component.Service):
         return d
 
     def workOnFeed(self, result, feed):
-        handle = feed['handle']
-        print "%s: Got feed" % handle
-
-        feed['etag'] = result.headers.get('etag', None)
-        feed['last-modified'] = result.headers.get('last-modified', None)
+        feed['etag'] = result.get('etag', None)
+        feed['last-modified'] = result.get('modified', None)
 
         if result.status == '301':
             print "%s: Feed's location changed permanently to %s" % \
-                  (handle, result.url)
+                  (feed['handle'], result.url)
             feed['url'] = result.url
-
-        return result
-
-    def parseFeed(self, result, feed):
-        f = feedparser.parse(result)
-
-        if not f.feed and f.bozo:
+        
+        if result.feed:
+            print "%s: Got feed" % feed["handle"]
+            if result.feed.title:
+                print "%s: Title: %s " % (feed["handle"],
+                                          repr(result.feed.title))
+        else:
             print "%s: Not a valid feed: %s: %s" % (feed["handle"],
-                                                    repr(f.bozo_exception),
-                                                    f.bozo_exception)
-        elif f.feed.title:
-            print "%s: Title: %s " % (feed["handle"],
-                                      repr(f.feed.title))
+                                                    repr(result.bozo_exception),
+                                                    result.bozo_exception)
 
-        for entry in f.entries:
+        for entry in result.entries:
             if not entry.has_key('id'):
                 entry.id = entry.link
 
-        return f
+        return result
 
     def publishEntries(self, entries, feed):
         for entry in entries:

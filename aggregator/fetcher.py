@@ -1,7 +1,7 @@
 from twisted.web import client, error
 from twisted.internet import reactor
 from twisted.python import failure
-
+import feedparser
 import copy
 
 feeds = ['http://test.ralphm.net/blog/atom']
@@ -94,6 +94,9 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
             if last_modified:
                 headers.setdefault('if-modified-since', last_modified)
 
+        headers.setdefault('accept-encoding', 'gzip, deflate')
+        headers.setdefault('accept', feedparser.ACCEPT_HEADER)
+
         client.HTTPClientFactory.__init__(self, url=url, method=method,
                 postdata=postdata, headers=headers, agent=agent,
                 timeout=timeout, cookies=cookies, followRedirect=followRedirect)
@@ -101,10 +104,11 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
     def page(self, page):
         if self.waiting:
             self.waiting = 0
-            feed = FeedResource(page, self.url, self.real_status or self.status,
-                                self.response_headers)
-
-            self.deferred.callback(feed)
+            resource = FeedResource(page, self.url,
+                                    self.real_status or self.status,
+                                    self.response_headers)
+            d = feedparser.parse(resource)
+            self.deferred.callback(d)
 
 def getFeed(url, contextFactory=None, *args, **kwargs):
     """ Download a web page as a string, keep a cache of already downloaded
