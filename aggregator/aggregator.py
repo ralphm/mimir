@@ -107,18 +107,18 @@ class AggregatorService(component.Service):
         handle = feed['handle']
         print "%s: Got feed" % handle
 
-        feed['etag'] = result.get('etag', None)
-        feed['last-modified'] = result.get('last-modified', None)
+        feed['etag'] = result.headers.get('etag', None)
+        feed['last-modified'] = result.headers.get('last-modified', None)
 
-        if result['url'] != feed['url']:
+        if result.status == '301':
             print "%s: Feed's location changed permanently to %s" % \
-                  (handle, result['url'])
-            feed['url'] = result['url']
+                  (handle, result.url)
+            feed['url'] = result.url
 
-        return result['response']
+        return result
 
-    def parseFeed(self, data, feed):
-        f = feedparser.parse(data)
+    def parseFeed(self, result, feed):
+        f = feedparser.parse(result)
 
         if not f.feed and f.bozo:
             print "%s: Not a valid feed: %s: %s" % (feed["handle"],

@@ -9,6 +9,27 @@ feeds = ['http://test.ralphm.net/blog/atom']
 class NotModified(Exception):
     pass
 
+class Headers(object):
+    def __init__(self, headers):
+        self.dict = dict([(k, v[0]) for k, v in headers.iteritems()])
+        self.get = self.dict.get
+
+    def getheader(self, header):
+        return self.get(header.lower(), None)
+
+class FeedResource(object):
+    def __init__(self, data, url, status, headers):
+        self.data = data
+        self.url = url
+        self.status = status
+        self.headers = Headers(headers)
+
+    def info(self):
+        return self.headers
+
+    def read(self):
+        return self.data
+
 class HTTPFeedGetter(client.HTTPPageGetter):
     """ HTTP page getter for feeds. """
 
@@ -18,8 +39,7 @@ class HTTPFeedGetter(client.HTTPPageGetter):
         rl = self.headers.get("last-modified", None)
         rd = self.headers.get("date", None)
         if re or rl or rd:
-            cache = {'response': response,
-                     'url': self.factory.original_url}
+            cache = {}
             if re:
                 cache['etag'] = re[-1]
             if rl and rd:
@@ -36,24 +56,20 @@ class HTTPFeedGetter(client.HTTPPageGetter):
         """ Handle status 301: Moved Permanently. """
         client.HTTPPageGetter.handleStatus_301(self)
         self.factory.original_url = self.factory.url
+        self.factory.real_status = self.status
 
     def handleStatus_302(self):
         client.HTTPPageGetter.handleStatus_301(self)
+        self.factory.real_status = self.status
 
     def handleStatus_303(self):
         self.factory.method = 'GET'
         client.HTTPPageGetter.handleStatus_301(self)
+        self.factory.real_status = self.status
 
     def handleStatus_304(self):
         """ Handle status 304: Not Modified. """
-        # Page was not modified since last time. Find in cache.
-        cache_entry = self.factory.cache.get(self.factory.url, None)
-        if not cache_entry:
-            self.factory.noPage(error.Error(self.status,
-                                            self.message,
-                                            "Page missing in cache"))
-        else:
-            self.factory.noPage(NotModified())
+        self.factory.noPage(NotModified())
 
 class HTTPClientFeedFactory(client.HTTPClientFactory):
 
@@ -65,6 +81,7 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
                  followRedirect=1):
 
         self.original_url = copy.copy(url)
+        self.real_status = None
 
         headers = headers or {}
 
@@ -84,7 +101,10 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
     def page(self, page):
         if self.waiting:
             self.waiting = 0
-            self.deferred.callback(self.cache[self.original_url])
+            feed = FeedResource(page, self.url, self.real_status or self.status,
+                                self.response_headers)
+
+            self.deferred.callback(feed)
 
 def getFeed(url, contextFactory=None, *args, **kwargs):
     """ Download a web page as a string, keep a cache of already downloaded
