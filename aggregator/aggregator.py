@@ -102,8 +102,8 @@ class AggregatorService(component.Service):
         return d
 
     def workOnFeed(self, result, feed):
-        feed['etag'] = result.get('etag', None)
-        feed['last-modified'] = result.get('modified', None)
+        feed['etag'] = result.headers.get('etag', None)
+        feed['last-modified'] = result.headers.get('last-modified', None)
 
         if result.status == '301':
             print "%s: Feed's location changed permanently to %s" % \
