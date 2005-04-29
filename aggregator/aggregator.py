@@ -111,12 +111,15 @@ class AggregatorService(component.Service):
             feed['url'] = result.url
         
         if result.feed:
-            print "%s: Got feed" % feed["handle"]
+            print "%s: Got feed." % feed["handle"]
             if result.feed.title:
                 print "%s: Title: %s " % (feed["handle"],
                                           repr(result.feed.title))
         else:
-            print "%s: Not a valid feed: %s: %s" % (feed["handle"],
+            print "%s: Not a valid feed." % feed["handle"]
+
+        if result.bozo:
+            print "%s: Bozo flag raised: %s: %s" % (feed["handle"],
                                                     repr(result.bozo_exception),
                                                     result.bozo_exception)
 
