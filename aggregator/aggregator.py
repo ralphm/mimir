@@ -7,6 +7,8 @@ from twisted.xish import domish
 from twisted.words.protocols.jabber import component, client
 
 INTERVAL=1800
+NS_AGGREGATOR='http://mimir.ik.nu/protocol/aggregator'
+NS_XMPP_STANZAS = 'urn:ietf:params:xml:ns:xmpp-stanzas'
 
 class AggregatorService(component.Service):
     agent = "MimirAggregator/0.2 (http://mimir.ik.nu/)"
@@ -29,6 +31,8 @@ class AggregatorService(component.Service):
         # Update feed data using feed list
 
         self.feeds = {}
+        self.schedule = {}
+
         for handle, url in feed_list:
             if feeds.has_key(handle):
                 feed = feeds[handle]
@@ -71,6 +75,8 @@ class AggregatorService(component.Service):
 
         xmlstream.addObserver('/iq[@type="set"]', self.iqFallback, -1)
         xmlstream.addObserver('/iq[@type="get"]', self.iqFallback, -1)
+        xmlstream.addObserver('/iq[@type="set"]/aggregator[@xmlns="' +
+                              NS_AGGREGATOR + '"]/feed', self.onFeed, 0)
        
         delay = 0
         for feed in self.feeds.itervalues():
@@ -82,7 +88,9 @@ class AggregatorService(component.Service):
             if last_modified:
                 headers['if-modified-since'] = last_modified
             
-            reactor.callLater(delay, self.start, feed, headers)
+            self.schedule[feed['handle']] = reactor.callLater(delay,
+                                                              self.start,
+                                                              feed, headers)
             delay += 5
 
     def iqFallback(self, iq):
@@ -90,6 +98,35 @@ class AggregatorService(component.Service):
             return
 
         self.send(xmpp_error.error_from_iq(iq, 'service-unavailable'))
+
+    def onFeed(self, iq):
+        handle = str(iq.aggregator.feed.handle or '')
+        url = str(iq.aggregator.feed.url or '')
+
+        iq.swapAttributeValues('to', 'from')
+        iq.handled = True
+
+        if handle and url:
+            iq["type"] = 'result'
+            iq.children = []
+
+            try:
+                feed = self.feeds['handle']
+                feed['url'] = url
+                self.schedule[handle].cancel()
+            except KeyError:
+                feed = {'handle': handle, 'url': url}
+
+            self.feeds[handle] = feed
+            self.schedule[handle] = reactor.callLater(0, self.start, feed)
+        else:
+            iq['type'] = 'error'
+            e = iq.addElement('error')
+            e['code'] = 400
+            e['type'] = 'modify'
+            c = e.addElement((NS_XMPP_STANZAS, 'bad-request'), NS_XMPP_STANZAS)
+    
+        self.xmlstream.send(iq)
 
     def start(self, feed, headers=None):
         d = fetcher.getFeed(feed['url'], agent=self.agent, headers=headers)
@@ -203,7 +240,9 @@ class AggregatorService(component.Service):
         print "%s: Not Modified" % feed["handle"]
 
     def reschedule(self, void, feed):
-        reactor.callLater(INTERVAL, self.start, feed)
+        self.schedule[feed['handle']] = reactor.callLater(INTERVAL,
+                                                          self.start,
+                                                          feed)
 
     def logNoFeed(self, failure, feed):
         failure.trap(fetcher.error.Error)
