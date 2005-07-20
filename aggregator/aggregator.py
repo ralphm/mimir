@@ -118,7 +118,11 @@ class AggregatorService(component.Service):
                 feed = {'handle': handle, 'url': url}
 
             self.feeds[handle] = feed
-            self.schedule[handle] = reactor.callLater(0, self.start, feed)
+            headers = {'if-none-match': '',
+                       'if-modified-since': ''}
+            self.schedule[handle] = reactor.callLater(0, self.start,
+                                                         feed,
+                                                         headers)
         else:
             iq['type'] = 'error'
             e = iq.addElement('error')
