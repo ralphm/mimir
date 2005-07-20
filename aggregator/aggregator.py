@@ -111,12 +111,12 @@ class AggregatorService(component.Service):
             iq.children = []
 
             try:
-                feed = self.feeds['handle']
-                feed['url'] = url
                 self.schedule[handle].cancel()
             except KeyError:
-                feed = {'handle': handle, 'url': url}
+                pass
 
+            feed =  {'handle': handle,
+                     'url': url}
             self.feeds[handle] = feed
             headers = {'if-none-match': '',
                        'if-modified-since': ''}
