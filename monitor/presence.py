@@ -157,7 +157,7 @@ class Monitor(service.Service):
         type = presence.getAttribute("type", None) or 'available'
         try:
             handler = getattr(self, 'on_%s' % (type))
-        except KeyError:
+        except AttributeError:
             return
         else:
             handler(presence)
