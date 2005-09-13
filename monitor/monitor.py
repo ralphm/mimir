@@ -8,12 +8,12 @@ import presence
 import news
 
 config = {
-    'user': 'mimir_test',
+    'user': 'mimir',
     'host': 'ik.nu',
-    'resource': 'monitor',
+    'resource': 'news_monitor',
     'secret': '35t120p',
     'dbuser': 'ralphm',
-    'dbname': 'mimir_test'
+    'dbname': 'mimir'
 }
 
 class Log:
