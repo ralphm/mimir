@@ -4,6 +4,8 @@ from twisted.internet import defer
 from twisted.words.protocols.jabber import jid
 from twisted.xish import domish
 
+domish.Element.__unicode__ = domish.Element.__str__
+
 class Storage(service.Service):
     def __init__(self, user, database):
         self._dbpool = adbapi.ConnectionPool('pyPgSQL.PgSQL',
@@ -74,7 +76,7 @@ class Storage(service.Service):
                                                                 entity)
 
     def _update_roster(self, cursor, changed, entity):
-        print "Updating roster for %s" % entity.full()
+        print "Updating roster for %s" % repr(entity.full())
 
         # Find new top resource's presence id
         cursor.execute("""SELECT presence_id, resource FROM presences
@@ -143,7 +145,7 @@ class Monitor(service.Service):
         d = self.storage.set_presence(entity, available, show, status, priority)
         d.addCallback(self.storage.update_roster, entity)
         def cb(changed, entity):
-            print "Changed %s: %s" % (entity.full(), changed)
+            print "Changed %s: %s" % (repr(entity.full()), changed)
             if changed:
                 for f in self.callbacks:
                     f(entity, available, show)
@@ -164,15 +166,15 @@ class Monitor(service.Service):
 
     def on_available(self, presence):
         entity = jid.JID(presence["from"])
-        print "Got available presence from %s" % (entity.full())
+        print "Got available presence from %s" % (repr(entity.full()))
 
-        status = str(presence.status or '')
-        show = str(presence.show or '')
+        status = unicode(presence.status or '')
+        show = unicode(presence.show or '')
         if show not in ['away', 'xa', 'chat', 'dnd']:
             show = ''
 
         try:
-            priority = int(str(presence.priority or '')) or 0
+            priority = int(unicode(presence.priority or '')) or 0
         except ValueError:
             priority = 0
 
@@ -182,9 +184,9 @@ class Monitor(service.Service):
 
     def on_unavailable(self, presence):
         entity = jid.JID(presence["from"])
-        print "Got unavailable presence from %s" % (entity.full())
+        print "Got unavailable presence from %s" % (repr(entity.full()))
 
-        status = str(presence.status or '')
+        status = unicode(presence.status or '')
 
         self.store_presence(entity, False, '', status, 0)
 
@@ -199,7 +201,7 @@ class RosterMonitor(Monitor):
 
     def on_subscribe(self, presence):
         entity = jid.JID(presence["from"])
-        print "Got subscribe presence from %s" % (entity.full())
+        print "Got subscribe presence from %s" % (repr(entity.full()))
         reply = domish.Element(('jabber:client', 'presence'))
         reply['to'] = entity.full()
         reply['type'] = 'subscribed'
@@ -211,11 +213,11 @@ class RosterMonitor(Monitor):
     
     def on_subscribed(self, presence):
         entity = jid.JID(presence["from"])
-        print "Got subscribed presence from %s" % (entity.full())
+        print "Got subscribed presence from %s" % (repr(entity.full()))
 
     def on_unsubscribe(self, presence):
         entity = jid.JID(presence["from"])
-        print "Got unsubscribe presence from %s" % (entity.full())
+        print "Got unsubscribe presence from %s" % (repr(entity.full()))
         reply = domish.Element(('jabber:client', 'presence'))
         reply['to'] = entity.full()
         reply['type'] = 'unsubscribed'
@@ -227,6 +229,6 @@ class RosterMonitor(Monitor):
 
     def on_unsubscribed(self, presence):
         entity = jid.JID(presence["from"])
-        print "Got unsubscribed presence from %s" % (entity.full())
+        print "Got unsubscribed presence from %s" % (repr(entity.full()))
         d = self.storage.remove_presences(entity)
         d.addErrback(self.error)

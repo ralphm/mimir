@@ -1,5 +1,6 @@
 from twisted.application import service
 from twisted.enterprise import adbapi
+from twisted.python import failure
 from twisted.internet import reactor
 from twisted.xish import domish
 import re
@@ -34,7 +35,7 @@ class Monitor(service.Service):
         else:
             show = 'offline'
 
-        print "  presence change to %s for %s", (show, entity.full())
+        print "  presence change to %s for %s", (show, repr(entity.full()))
         reactor.callLater(5, self.page_notify, entity, show)
 
     def page_notify(self, entity, show):
@@ -61,7 +62,7 @@ class Monitor(service.Service):
         result = cursor.fetchone()
 
         if not result:
-            raise NoNotify
+            return failure.Failure(NoNotify())
 
         return result
 
@@ -112,7 +113,7 @@ class Monitor(service.Service):
                        channel)
         title = cursor.fetchone()[0]
 
-        print "Channel title: %s" % title
+        print "Channel title: %s" % repr(title)
 
         # Get notify list, including preferences
         cursor.execute("""SELECT user_id, jid, notify,
@@ -161,27 +162,30 @@ class Monitor(service.Service):
 
         print "Storing item: %s" % repr(item.toXml())
 
-        try:
-            cursor.execute("""INSERT INTO news
-                              (channel, title, link, description) VALUES
-                              (%s, %s, %s, %s)""",
-                           (channel, title, link, description))
-        except cursor._pool.dbapi.OperationalError:
-            cursor.execute("""UPDATE news
-                              SET title=%s, description=%s, date=now()
-                              WHERE channel=%s AND link=%s""",
-                           (title, description, channel, link))
+        cursor.execute("""UPDATE news
+                          SET title=%s, description=%s, date=now()
+                          WHERE channel=%s AND link=%s""",
+                       (title, description, channel, link))
+
+        if cursor.rowcount == 1:
             print "UPDATE"
-        else:
-            print "INSERT",
+            return None
 
-            cursor.execute("""SELECT news_id FROM news
-                              WHERE channel=%s and link=%s""",
-                              (channel, link))
+        cursor.execute("""INSERT INTO news
+                          (channel, title, link, description) VALUES
+                          (%s, %s, %s, %s)""",
+                       (channel, title, link, description))
 
-            news_id = cursor.fetchone()[0]
-            print news_id
-            return news_id
+        print "INSERT",
+
+        cursor.execute("""SELECT news_id FROM news
+                          WHERE channel=%s and link=%s""",
+                          (channel, link))
+
+        news_id = cursor.fetchone()[0]
+
+        print news_id
+        return news_id
 
     def send_notification(self, jid, description_in_notify, message_type,
                           title, link, description):
