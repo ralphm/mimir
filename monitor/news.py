@@ -54,8 +54,11 @@ class Monitor(service.Service):
                           NATURAL JOIN news_page
                           NATURAL JOIN news_flags
                           NATURAL JOIN news
-                          WHERE jid=%s AND suspended=false AND presence=%s AND
-                                notified=false AND date>last_visit
+                          WHERE jid=%s AND
+                                NOT suspended AND
+                                presence=%s AND
+                                NOT notified AND
+                                date>last_visit
                           GROUP BY user_id, message_type, ssl""",
                        (entity.userhost(),
                         show))
@@ -117,11 +120,13 @@ class Monitor(service.Service):
 
         # Get notify list, including preferences
         cursor.execute("""SELECT user_id, jid, notify,
-                                 description_in_notify, message_type
-                          FROM news_subscriptions
+                                 description_in_notify, message_type,
+                                 store_offline, notify_items
+                          FROM news_prefs
+                            NATURAL JOIN news_subscriptions
                             NATURAL JOIN news_notify
-                            JOIN news_prefs using (user_id)
-                          WHERE channel=%s""", channel)
+                          WHERE NOT suspended AND channel=%s""",
+                       channel)
 
         notify_list = cursor.fetchall()
 
@@ -129,13 +134,14 @@ class Monitor(service.Service):
         # and a list of entities that will get items marked as unread
         notifications = []
         mark_unread = []
-        for user_id, jid, notify, description_in_notify, message_type in \
+        for user_id, jid, notify, description_in_notify, message_type, \
+            store_offline, notify_items in \
                 notify_list:
-            if notify:
+            if notify and notify_items:
                 notifications.append((jid,
                                       description_in_notify,
                                       message_type))
-            else:
+            elif store_offline:
                 mark_unread.append(user_id)
 
         # store items and mark unread
