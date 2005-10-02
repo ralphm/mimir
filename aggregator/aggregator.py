@@ -118,11 +118,9 @@ class AggregatorService(component.Service):
             feed =  {'handle': handle,
                      'url': url}
             self.feeds[handle] = feed
-            headers = {'if-none-match': '',
-                       'if-modified-since': ''}
             self.schedule[handle] = reactor.callLater(0, self.start,
                                                          feed,
-                                                         headers)
+                                                         useCache=0)
         else:
             iq['type'] = 'error'
             e = iq.addElement('error')
@@ -132,8 +130,9 @@ class AggregatorService(component.Service):
     
         self.xmlstream.send(iq)
 
-    def start(self, feed, headers=None):
-        d = fetcher.getFeed(feed['url'], agent=self.agent, headers=headers)
+    def start(self, feed, headers=None, useCache=1):
+        d = fetcher.getFeed(feed['url'], agent=self.agent, headers=headers,
+                                         useCache=useCache)
         d.addCallback(self.workOnFeed, feed)
         d.addCallback(self.findFreshItems, feed)
         d.addErrback(self.notModified, feed)
@@ -166,7 +165,10 @@ class AggregatorService(component.Service):
 
         for entry in result.entries:
             if not entry.has_key('id'):
-                entry.id = entry.link
+                try:
+                    entry.id = entry.link
+                except AttributeError:
+                    pass
 
         return result
 
@@ -193,6 +195,9 @@ class AggregatorService(component.Service):
         iq.pubsub.publish["node"] = 'mimir/news/%s' % feed["handle"]
 
         for entry in entries:
+            if not entry.id:
+                continue
+
             item = iq.pubsub.publish.addElement('item')
             item["id"] = entry.id
             news = item.addElement(('mimir:news', 'news'))
@@ -201,8 +206,13 @@ class AggregatorService(component.Service):
                 if entry.title_detail.type == 'text/plain':
                     content = domish.escapeToXml(content)
                 news.addElement('title', content=content)
-            if entry.has_key('link'):
-                news.addElement('link', content=entry.link)
+            if entry.has_key('links'):
+                url = None
+                for link in entry.links:
+                    if link.rel=='alternate':
+                        url = link.href
+                if url:
+                    news.addElement('link', content=url)
 
             # Find a description. First try full text, then summary.
             content = None
