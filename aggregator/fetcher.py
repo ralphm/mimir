@@ -78,14 +78,14 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
 
     def __init__(self, url, method='GET', postdata=None, headers=None,
                  agent="Twisted PageGetter", timeout=0, cookies=None,
-                 followRedirect=1):
+                 followRedirect=1, useCache=1):
 
         self.original_url = copy.copy(url)
         self.real_status = None
 
         headers = headers or {}
 
-        cached = self.cache.get(url, None)
+        cached = useCache and self.cache.get(url, None)
         if cached:
             etag = cached.get('etag', None)
             last_modified = cached.get('last-modified', None)
