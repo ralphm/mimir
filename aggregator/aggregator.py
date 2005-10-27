@@ -189,7 +189,7 @@ class AggregatorService(component.Service):
         
         iq = client.IQ(self.xmlstream, 'set')
         iq['to'] = 'pubsub.ik.nu'
-        iq['from'] = self.xmlstream.authenticator.streamHost
+        iq['from'] = self.xmlstream.thisHost
         iq.addElement(('http://jabber.org/protocol/pubsub', 'pubsub'))
         iq.pubsub.addElement('publish')
         iq.pubsub.publish["node"] = 'mimir/news/%s' % feed["handle"]
@@ -211,6 +211,10 @@ class AggregatorService(component.Service):
                 for link in entry.links:
                     if link.rel=='alternate':
                         url = link.href
+
+                if entry.has_key('feedburner_origlink'):
+                    url = entry.feedburner_origlink
+
                 if url:
                     news.addElement('link', content=url)
 
