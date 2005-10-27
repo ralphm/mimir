@@ -203,6 +203,8 @@ class AggregatorService(component.Service):
             news = item.addElement(('mimir:news', 'news'))
             if entry.has_key('title'):
                 content = entry.title
+                if entry.has_key('source') and entry.source.has_key('title'):
+                    content = "%s: %s" % (entry.source.title, content)
                 if entry.title_detail.type == 'text/plain':
                     content = domish.escapeToXml(content)
                 news.addElement('title', content=content)
