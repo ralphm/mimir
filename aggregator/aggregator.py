@@ -3,8 +3,8 @@ import xmpp_error
 from twisted.python import log
 from twisted.internet import reactor, defer
 from twisted.persisted import sob
-from twisted.xish import domish
 from twisted.words.protocols.jabber import component, client
+from twisted.words.xish import domish
 
 INTERVAL=1800
 NS_AGGREGATOR='http://mimir.ik.nu/protocol/aggregator'
