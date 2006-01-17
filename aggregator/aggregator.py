@@ -124,7 +124,7 @@ class AggregatorService(component.Service):
         else:
             iq['type'] = 'error'
             e = iq.addElement('error')
-            e['code'] = 400
+            e['code'] = '400'
             e['type'] = 'modify'
             c = e.addElement((NS_XMPP_STANZAS, 'bad-request'), NS_XMPP_STANZAS)
     
@@ -153,14 +153,14 @@ class AggregatorService(component.Service):
         if result.feed:
             print "%s: Got feed." % feed["handle"]
             if result.feed.title:
-                print "%s: Title: %s " % (feed["handle"],
-                                          repr(result.feed.title))
+                print "%s: Title: %r " % (feed["handle"],
+                                          result.feed.title)
         else:
             print "%s: Not a valid feed." % feed["handle"]
 
         if result.bozo:
-            print "%s: Bozo flag raised: %s: %s" % (feed["handle"],
-                                                    repr(result.bozo_exception),
+            print "%s: Bozo flag raised: %r: %s" % (feed["handle"],
+                                                    result.bozo_exception,
                                                     result.bozo_exception)
 
         for entry in result.entries:
@@ -177,9 +177,9 @@ class AggregatorService(component.Service):
             if entry.has_key('id'):
                 print "  id: %s" % entry.id
             if entry.has_key('title'):
-                print "  title (%s): %s" % \
+                print "  title (%s): %r" % \
                       (entry.title_detail.type,
-                       repr(entry.title_detail.value))
+                       entry.title_detail.value)
 
         #reactor.callLater(0, self._publishEntry, entry, feed)
         self._publishEntries(entries, feed)
@@ -280,10 +280,10 @@ class LogService(component.Service):
         xmlstream.rawDataOutFn = self.rawDataOut
 
     def rawDataIn(self, buf):
-        print "RECV: %s" % repr(buf)
+        print "RECV: %r" % buf
 
     def rawDataOut(self, buf):
-        print "SEND: %s" % repr(buf)
+        print "SEND: %r" % buf
 
 def makeService(config):
     sm = component.buildServiceManager(config["jid"], config["secret"],
