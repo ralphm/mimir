@@ -56,6 +56,12 @@ class AggregatorService(component.Service):
     def stopService(self):
         log.msg('Stopping Aggregator')
 
+        for call in self.schedule.itervalues():
+            try:
+                call.cancel()
+            except ValueError:
+                pass
+
         self.persistent.save()
 
         # save feed file
