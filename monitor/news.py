@@ -2,7 +2,7 @@ from twisted.application import service
 from twisted.enterprise import adbapi
 from twisted.python import failure
 from twisted.internet import reactor
-from twisted.xish import domish
+from twisted.words.xish import domish
 import re
 
 SGMLTAG = re.compile('<.+?>', re.DOTALL)

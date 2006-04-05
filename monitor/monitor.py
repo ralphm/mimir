@@ -2,7 +2,7 @@
 
 from twisted.words.protocols.jabber.client import basicClientFactory
 from twisted.words.protocols.jabber import jid, xmlstream
-from twisted.xish import domish
+from twisted.words.xish import domish
 from twisted.internet import reactor
 import presence
 import news

@@ -2,7 +2,7 @@ from twisted.application import service
 from twisted.enterprise import adbapi
 from twisted.internet import defer
 from twisted.words.protocols.jabber import jid
-from twisted.xish import domish
+from twisted.words.xish import domish
 
 domish.Element.__unicode__ = domish.Element.__str__
 
