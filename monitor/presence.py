@@ -1,5 +1,4 @@
 from twisted.application import service
-from twisted.enterprise import adbapi
 from twisted.internet import defer
 from twisted.words.protocols.jabber import jid
 from twisted.words.xish import domish
@@ -7,11 +6,8 @@ from twisted.words.xish import domish
 domish.Element.__unicode__ = domish.Element.__str__
 
 class Storage(service.Service):
-    def __init__(self, user, database):
-        self._dbpool = adbapi.ConnectionPool('pyPgSQL.PgSQL',
-                                            user=user,
-                                            database=database,
-                                            client_encoding='utf-8')
+    def __init__(self, dbpool):
+        self._dbpool = dbpool 
         self._dbpool.runOperation("""UPDATE presences
                                      SET type='unavailable', show='',
                                          status='', priority=0

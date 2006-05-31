@@ -1,5 +1,6 @@
 #!/usr/local/bin/python
 
+from twisted.enterprise import adbapi
 from twisted.words.protocols.jabber.client import basicClientFactory
 from twisted.words.protocols.jabber import jid, xmlstream
 from twisted.words.xish import domish
@@ -29,9 +30,16 @@ class Log:
         print "SEND: %s" % unicode(buf, 'utf-8').encode('ascii', 'replace')
 
 log = Log()
-ms = presence.Storage(config["dbuser"], config["dbname"])
+dbpool = adbapi.ConnectionPool('pyPgSQL.PgSQL',
+                               user=config["dbuser"],
+                               database=config["dbname"],
+                               client_encoding='utf-8',
+                               cp_min = 1,
+                               cp_max = 1
+                               )
+ms = presence.Storage(dbpool)
 presence_monitor = presence.RosterMonitor(ms)
-news_monitor = news.Monitor(presence_monitor, config["dbuser"], config["dbname"])
+news_monitor = news.Monitor(presence_monitor, dbpool)
 cf = basicClientFactory(jid.JID(tuple = (config["user"],
                                          config["host"],
                                          config["resource"])),

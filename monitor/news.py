@@ -1,5 +1,4 @@
 from twisted.application import service
-from twisted.enterprise import adbapi
 from twisted.python import failure
 from twisted.internet import reactor
 from twisted.words.xish import domish
@@ -13,11 +12,8 @@ class NoNotify(Exception):
     pass
 
 class Monitor(service.Service):
-    def __init__(self, presence_monitor, user, database):
-        self._dbpool = adbapi.ConnectionPool('pyPgSQL.PgSQL',
-                                            user=user,
-                                            database=database,
-                                            client_encoding='utf-8')
+    def __init__(self, presence_monitor, dbpool):
+        self._dbpool = dbpool
         presence_monitor.register_callback(self.onPresenceChange)
 
     def connected(self, xmlstream):
