@@ -2,7 +2,6 @@ import fetcher
 import xmpp_error
 from twisted.python import log
 from twisted.internet import reactor, defer
-from twisted.persisted import sob
 from twisted.words.protocols.jabber import component, client
 from twisted.words.xish import domish
 
@@ -17,11 +16,7 @@ class AggregatorService(component.Service):
         log.FileLogObserver.timeFormat = "%Y/%m/%d %H:%M:%S %Z"
         log.msg('Starting Aggregator')
         
-        # Load feed data from persistent storage
-        try:
-            feeds = sob.load('feeds.tap', 'pickle')
-        except IOError:
-            feeds = {}
+        feeds = {}
 
         # Read feed list
         f = file('feeds')
@@ -48,9 +43,6 @@ class AggregatorService(component.Service):
                 self.feeds[handle] = {'handle': handle,
                                       'url': url}
 
-        # make feeds object persistent
-        self.persistent = sob.Persistent(self.feeds, 'feeds')
-
         component.Service.startService(self)
 
     def stopService(self):
@@ -61,8 +53,6 @@ class AggregatorService(component.Service):
                 call.cancel()
             except ValueError:
                 pass
-
-        self.persistent.save()
 
         # save feed file
         feed_list = ["%s %s\n" % (f['handle'], f['url'])
@@ -137,8 +127,9 @@ class AggregatorService(component.Service):
         self.xmlstream.send(iq)
 
     def start(self, feed, headers=None, useCache=1):
-        d = fetcher.getFeed(feed['url'], agent=self.agent, headers=headers,
-                                         useCache=useCache)
+        d = defer.maybeDeferred(fetcher.getFeed, feed['url'], agent=self.agent,
+                                                 headers=headers,
+                                                 useCache=useCache)
         d.addCallback(self.workOnFeed, feed)
         d.addCallback(self.findFreshItems, feed)
         d.addErrback(self.notModified, feed)
@@ -158,7 +149,7 @@ class AggregatorService(component.Service):
         
         if result.feed:
             print "%s: Got feed." % feed["handle"]
-            if result.feed.title:
+            if result.feed.get('title', None):
                 print "%s: Title: %r " % (feed["handle"],
                                           result.feed.title)
         else:
@@ -170,27 +161,12 @@ class AggregatorService(component.Service):
                                                     result.bozo_exception)
 
         for entry in result.entries:
-            if not entry.has_key('id'):
-                try:
-                    entry.id = entry.link
-                except AttributeError:
-                    pass
+            if 'id' not in entry and 'link' in entry:
+                entry.id = entry.link
 
         return result
 
     def publishEntries(self, entries, feed):
-        for entry in entries:
-            if entry.has_key('id'):
-                print "  id: %s" % entry.id
-            if entry.has_key('title'):
-                print "  title (%s): %r" % \
-                      (entry.title_detail.type,
-                       entry.title_detail.value)
-
-        #reactor.callLater(0, self._publishEntry, entry, feed)
-        self._publishEntries(entries, feed)
-
-    def _publishEntries(self, entries, feed):
         print "publishing items"
         
         iq = client.IQ(self.xmlstream, 'set')
@@ -201,59 +177,61 @@ class AggregatorService(component.Service):
         iq.pubsub.publish["node"] = 'mimir/news/%s' % feed["handle"]
 
         for entry in entries:
-            if not entry.id:
-                continue
-
             item = iq.pubsub.publish.addElement('item')
             item["id"] = entry.id
             news = item.addElement(('mimir:news', 'news'))
-            if entry.has_key('title'):
+
+            if 'title' in entry:
                 content = entry.title
-                if entry.has_key('source') and entry.source.has_key('title'):
+                if 'source' in entry and 'title' in entry.source:
                     content = "%s: %s" % (entry.source.title, content)
                 if entry.title_detail.type == 'text/plain':
                     content = domish.escapeToXml(content)
                 news.addElement('title', content=content)
-            if entry.has_key('links'):
-                url = None
-                for link in entry.links:
-                    if link.rel=='alternate':
-                        url = link.href
 
-                if entry.has_key('feedburner_origlink'):
-                    url = entry.feedburner_origlink
+            if 'link' in entry:
+                url = entry.get('feedburner_origlink', entry.link)
 
                 if url:
                     news.addElement('link', content=url)
 
             # Find a description. First try full text, then summary.
             content = None
-            if entry.has_key('content'):
-                content = entry.content[0].value
-                type = entry.content[0].type
-            elif entry.has_key('summary'):
-                content = entry.summary
-                type = entry.summary_detail.type
+            if 'content' in entry:
+                content = entry.content[0]
+            elif 'summary' in entry:
+                content = entry.summary_detail
+
             if content:
-                if type == 'text/plain':
-                    content = domish.escapeToXml(content)
-                news.addElement('description', content=content)
+                value = content.value
+                if content.type == 'text/plain':
+                    value = domish.escapeToXml(value)
+                news.addElement('description', content=value)
 
         iq.send()
 
     def findFreshItems(self, f, feed):
+        def add(entry, kind):
+            print "%s: Found %s item" % (feed["handle"], kind)
+            print "%s:   id: %s" % (feed["handle"], entry.id)
+            if 'title' in entry:
+                print "%s:   title (%s): %r" % (feed["handle"],
+                                               entry.title_detail.type,
+                                               entry.title_detail.value)
+            new_entries.append(entry)
+
         cache = feed.get('cache', {})
 
         new_cache = {}
         new_entries = []
         for entry in reversed(f.entries):
-            if cache.has_key(entry.id):
-                if cache[entry.id] != entry:
-                    print "%s: Found updated item" % feed["handle"]
-                    new_entries.append(entry)
-            else:
-                print "%s: Found new item:" % feed["handle"]
-                new_entries.append(entry)
+            if 'id' not in entry:
+                continue
+
+            if entry.id not in cache:
+                add(entry, 'new')
+            elif cache[entry.id] != entry:
+                add(entry, 'updated')
 
             new_cache[entry.id] = entry
 

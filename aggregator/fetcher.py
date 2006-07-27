@@ -1,5 +1,5 @@
 from twisted.web import client, error
-from twisted.internet import reactor
+from twisted.internet import defer, reactor
 from twisted.python import failure
 import feedparser
 import copy
@@ -107,8 +107,8 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
             resource = FeedResource(page, self.url,
                                     self.real_status or self.status,
                                     self.response_headers)
-            d = feedparser.parse(resource)
-            self.deferred.callback(d)
+            d = defer.maybeDeferred(feedparser.parse, resource)
+            d.chainDeferred(self.deferred)
 
 def getFeed(url, contextFactory=None, *args, **kwargs):
     """ Download a web page as a string, keep a cache of already downloaded
