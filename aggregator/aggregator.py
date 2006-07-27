@@ -1,8 +1,9 @@
 import fetcher
-import xmpp_error
 from twisted.python import log
 from twisted.internet import reactor, defer
-from twisted.words.protocols.jabber import component, client
+from twisted.internet.error import ConnectionLost
+from twisted.words.protocols.jabber import component, client, xmlstream
+from twisted.words.protocols.jabber.error import StanzaError
 from twisted.words.xish import domish
 
 INTERVAL=1800
@@ -89,20 +90,28 @@ class AggregatorService(component.Service):
                                                               feed, headers)
             delay += 5
 
+    def componentDisconnected(self, xs):
+        for d in xs.iqDeferreds.itervalues():
+            d.errback(ConnectionLost())
+
+        xs.iqDeferreds = {}
+
+        self.xmlstream = None
+
     def iqFallback(self, iq):
         if iq.handled == True:
             return
 
-        self.send(xmpp_error.error_from_iq(iq, 'service-unavailable'))
+        self.send(StanzaError('service-unavailable').toResponse(iq))
 
     def onFeed(self, iq):
         handle = str(iq.aggregator.feed.handle or '')
         url = str(iq.aggregator.feed.url or '')
 
-        iq.swapAttributeValues('to', 'from')
         iq.handled = True
 
         if handle and url:
+            iq.swapAttributeValues('to', 'from')
             iq["type"] = 'result'
             iq.children = []
 
@@ -118,11 +127,7 @@ class AggregatorService(component.Service):
                                                          feed,
                                                          useCache=0)
         else:
-            iq['type'] = 'error'
-            e = iq.addElement('error')
-            e['code'] = '400'
-            e['type'] = 'modify'
-            c = e.addElement((NS_XMPP_STANZAS, 'bad-request'), NS_XMPP_STANZAS)
+            iq = StanzaError('bad-request').toResponse(iq)
     
         self.xmlstream.send(iq)
 
@@ -132,6 +137,7 @@ class AggregatorService(component.Service):
                                                  useCache=useCache)
         d.addCallback(self.workOnFeed, feed)
         d.addCallback(self.findFreshItems, feed)
+        d.addCallback(self.updateCache, feed)
         d.addErrback(self.notModified, feed)
         d.addErrback(self.logNoFeed, feed)
         d.addErrback(self.munchError, feed)
@@ -167,9 +173,9 @@ class AggregatorService(component.Service):
         return result
 
     def publishEntries(self, entries, feed):
-        print "publishing items"
+        print "%s: publishing items" % feed["handle"]
         
-        iq = client.IQ(self.xmlstream, 'set')
+        iq = xmlstream.IQ(self.xmlstream, 'set')
         iq['to'] = 'pubsub.ik.nu'
         iq['from'] = self.xmlstream.thisHost
         iq.addElement(('http://jabber.org/protocol/pubsub', 'pubsub'))
@@ -208,7 +214,7 @@ class AggregatorService(component.Service):
                     value = domish.escapeToXml(value)
                 news.addElement('description', content=value)
 
-        iq.send()
+        return iq.send()
 
     def findFreshItems(self, f, feed):
         def add(entry, kind):
@@ -236,7 +242,15 @@ class AggregatorService(component.Service):
             new_cache[entry.id] = entry
 
         if new_entries:
-            self.publishEntries(new_entries, feed)
+            d = self.publishEntries(new_entries, feed)
+        else:
+            d = defer.succeed(None)
+
+        d.addCallback(lambda _: new_cache)
+        return d
+
+    def updateCache(self, new_cache, feed):
+        print "%s: updating cache" % feed["handle"]
         feed['cache'] = new_cache
 
     def notModified(self, failure, feed):
