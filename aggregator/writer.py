@@ -1,0 +1,171 @@
+from twisted.words.xish import domish
+
+NS_XML = 'http://www.w3.org/XML/1998/namespace'
+NS_ATOM = 'http://www.w3.org/2005/Atom'
+
+class AtomWriter(object):
+    
+    def generate(self, entry):
+        import pprint
+        pprint.pprint(entry)
+        element = domish.Element((NS_ATOM, 'entry'))
+
+        for key, value in entry.iteritems():
+            methodname = "_generate_" + key
+            try:
+                method = getattr(self, methodname)
+            except AttributeError:
+                continue
+            
+            result = method(value)
+
+            if not isinstance(result, list):
+                result = [result]
+
+            for item in result:
+                element.addChild(item)
+
+        return element
+
+    def generate_person(self, name, data):
+        element = domish.Element((None, name))
+
+        for key, value in data.iteritems():
+            if key in ['name', 'uri', 'email']:
+                element.addElement(key, content=value)
+
+        return element
+
+    def generate_element(self, name, data):
+        element = domish.Element((None, name))
+
+        if data:
+            element.addContent(data)
+
+        return element
+
+    def generate_text(self, name, data):
+        element = domish.Element((None, name))
+
+        if data['value']:
+            if data.type == "text/plain":
+                element['type'] = 'text'
+                element.addContent(domish.escapeToXml(data.value))
+            else:
+                element['type'] = 'html'
+                element.addContent(data.value)
+
+            if 'language' in data and data['language']:
+                element[(NS_XML, 'lang')] = data['language']
+
+            if 'base' in data:
+                element[(NS_XML, 'base')] = data['base']
+
+        return element
+
+    def _generate_author_detail(self, data):
+        return self.generate_person('author', data)
+
+    def _generate_contributor(self, data):
+        return [self.generate_person('contributor', item)
+                for item in data]
+
+    def _generate_content(self, data):
+        elements = []
+        for item in data:
+            element = self.generate_text('content', item)
+
+            if 'src' in item:
+                element['src'] = item['src']
+
+            elements.append(element)
+
+        return elements
+
+    def _generate_enclosures(self, data):
+        elements = []
+        for item in data:
+            element = domish.Element((None, 'link'))
+            element['rel'] = 'enclosure'
+
+            for key, value in item.iteritems():
+                if key in ['type', 'href', 'length']:
+                    element[key] = value
+
+            elements.append(element)
+
+        return elements
+
+    def _generate_id(self, data):
+        return self.generate_element('id', data)
+
+    def _generate_links(self, data):
+        elements = []
+        for item in data:
+            element = domish.Element((None, 'link'))
+            for key, value in item.iteritems():
+                if key in ['rel', 'type', 'href', 'title']:
+                    element[key] = value
+
+            elements.append(element)
+
+        return elements
+
+    def _generate_published(self, data):
+        return self.generate_element('published', data)
+
+    def _generate_summary_detail(self, data):
+        return self.generate_text('summary', data)
+
+    def _generate_tags(self, data):
+        elements = []
+
+        for item in data:
+            element = domish.Element((None, 'category'))
+            for key, value in item.iteritems():
+                if value and key in ['term', 'scheme', 'label']:
+                    element[key] = value
+
+            elements.append(element)
+
+        return elements
+    
+    def _generate_title_detail(self, data):
+        return self.generate_text('title', data)
+
+    def _generate_updated(self, data):
+        return self.generate_element('updated', data)
+
+class MimirWriter(object):
+
+    def generate(self, entry):
+        news = domish.Element(('mimir:news', 'news'))
+
+        if 'title' in entry:
+            content = entry.title
+            if 'source' in entry and 'title' in entry.source:
+                content = "%s: %s" % (entry.source.title, content)
+            if entry.title_detail.type == 'text/plain':
+                content = domish.escapeToXml(content)
+            news.addElement('title', content=content)
+
+        if 'link' in entry:
+            url = entry.get('feedburner_origlink', entry.link)
+
+            if url:
+                news.addElement('link', content=url)
+
+        # Find a description. First try full text, then summary.
+        content = None
+        if 'content' in entry:
+            content = entry.content[0]
+        elif 'summary' in entry:
+            content = entry.summary_detail
+
+        if content:
+            value = content.value
+            if content.type == 'text/plain':
+                value = domish.escapeToXml(value)
+            news.addElement('description', content=value)
+
+        return news

@@ -1,4 +1,4 @@
-import fetcher
+import fetcher, writer
 from twisted.python import log
 from twisted.internet import reactor, defer
 from twisted.internet.error import ConnectionLost
@@ -16,6 +16,8 @@ class AggregatorService(component.Service):
     def startService(self):
         log.FileLogObserver.timeFormat = "%Y/%m/%d %H:%M:%S %Z"
         log.msg('Starting Aggregator')
+
+        self.writer = writer.AtomWriter()
         
         feeds = {}
 
@@ -90,11 +92,11 @@ class AggregatorService(component.Service):
                                                               feed, headers)
             delay += 5
 
-    def componentDisconnected(self, xs):
-        for d in xs.iqDeferreds.itervalues():
+    def componentDisconnected(self):
+        for d in self.xmlstream.iqDeferreds.itervalues():
             d.errback(ConnectionLost())
 
-        xs.iqDeferreds = {}
+        self.xmlstream.iqDeferreds = {}
 
         self.xmlstream = None
 
@@ -185,34 +187,7 @@ class AggregatorService(component.Service):
         for entry in entries:
             item = iq.pubsub.publish.addElement('item')
             item["id"] = entry.id
-            news = item.addElement(('mimir:news', 'news'))
-
-            if 'title' in entry:
-                content = entry.title
-                if 'source' in entry and 'title' in entry.source:
-                    content = "%s: %s" % (entry.source.title, content)
-                if entry.title_detail.type == 'text/plain':
-                    content = domish.escapeToXml(content)
-                news.addElement('title', content=content)
-
-            if 'link' in entry:
-                url = entry.get('feedburner_origlink', entry.link)
-
-                if url:
-                    news.addElement('link', content=url)
-
-            # Find a description. First try full text, then summary.
-            content = None
-            if 'content' in entry:
-                content = entry.content[0]
-            elif 'summary' in entry:
-                content = entry.summary_detail
-
-            if content:
-                value = content.value
-                if content.type == 'text/plain':
-                    value = domish.escapeToXml(value)
-                news.addElement('description', content=value)
+            item.addChild(self.writer.generate(entry))
 
         return iq.send()
 
