@@ -44,6 +44,7 @@ cf = basicClientFactory(jid.JID(tuple = (config["user"],
                                          config["host"],
                                          config["resource"])),
                         config["secret"])
+cf.maxDelay = 900
 cf.addBootstrap(xmlstream.STREAM_AUTHD_EVENT, log.connected)
 cf.addBootstrap(xmlstream.STREAM_AUTHD_EVENT, presence_monitor.connected)
 cf.addBootstrap(xmlstream.STREAM_AUTHD_EVENT, news_monitor.connected)
