@@ -1,13 +1,33 @@
+# Copyright (c) 2005-2006 Ralph Meijer
+# See LICENSE for details
+
+"""
+Unparsers for feeds.
+
+Writers create another representation from the Universal Feed Parser's entry
+representation.
+"""
+
 from twisted.words.xish import domish
 
 NS_XML = 'http://www.w3.org/XML/1998/namespace'
 NS_ATOM = 'http://www.w3.org/2005/Atom'
 
 class AtomWriter(object):
+    """
+    Writer that generates entries that adhere to the Atom specification.
+    """
     
     def generate(self, entry):
-        import pprint
-        pprint.pprint(entry)
+        """
+        Generate an Atom entry from a feedparser entry.
+
+        @param entry: a parsed feed entry.
+        @type entry: L{dict}
+        @return: an Atom entry.
+        @rtype: L{domish.Element}
+        """
+
         element = domish.Element((NS_ATOM, 'entry'))
 
         for key, value in entry.iteritems():
@@ -137,6 +157,9 @@ class AtomWriter(object):
         return self.generate_element('updated', data)
 
 class MimirWriter(object):
+    """
+    Writer that generates entries using a custom XML representation.
+    """
 
     def generate(self, entry):
         news = domish.Element(('mimir:news', 'news'))

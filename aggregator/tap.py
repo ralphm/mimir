@@ -1,3 +1,10 @@
+# Copyright (c) 2005-2006 Ralph Meijer
+# See LICENSE for details
+
+"""
+Create a aggregation service.
+"""
+
 from twisted.python import usage
 import aggregator
 

@@ -1,3 +1,13 @@
+# Copyright (c) 2005-2006 Ralph Meijer
+# See LICENSE for details
+
+"""
+Feed retrieval and parsing.
+
+This module implements asynchronous download of RSS and Atom feeds via
+HTTP, that are subsequently parsed using the Universal Feed Parser.
+"""
+
 from twisted.web import client, error
 from twisted.internet import defer, reactor
 from twisted.python import failure
@@ -10,6 +20,10 @@ class NotModified(Exception):
     pass
 
 class Headers(object):
+    """
+    Helper module to keep HTTP headers.
+    """
+
     def __init__(self, headers):
         self.dict = dict([(k, v[0]) for k, v in headers.iteritems()])
         self.get = self.dict.get
@@ -18,6 +32,15 @@ class Headers(object):
         return self.get(header.lower(), None)
 
 class FeedResource(object):
+    """
+    Fake resource that behaves like a feed retrieved via HTTP.
+
+    This object holds the URL and HTTP status and headers just like
+    Universal Feed Parser's internal fetcher. It is used to make UFP
+    have the same information available after having asynchronously
+    retrieved the feed.
+    """
+
     def __init__(self, data, url, status, headers):
         self.data = data
         self.url = url
@@ -72,6 +95,13 @@ class HTTPFeedGetter(client.HTTPPageGetter):
         self.factory.noPage(NotModified())
 
 class HTTPClientFeedFactory(client.HTTPClientFactory):
+    """
+    Factory for retrieving feeds via HTTP and parsing it using the
+    Universal Feed Parser.
+
+    The factory keeps a cache, uses HTTP condition GETs (last-modified
+    and etag) and asks for compression to minimize bandwith usage.
+    """
 
     protocol = HTTPFeedGetter
     cache = {}
@@ -111,11 +141,11 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
             d.chainDeferred(self.deferred)
 
 def getFeed(url, contextFactory=None, *args, **kwargs):
-    """ Download a web page as a string, keep a cache of already downloaded
-        pages.
+    """
+    Download a web feed, keep a cache of already downloaded pages.
 
-    Download a page. Return a deferred, which will callback with a
-    page (as a string) or errback with a description of the error.
+    Download a feed. Return a deferred, which will callback with a feed (parsed
+    with the Universal Feed Parser) or errback with a description of the error.
 
     See HTTPClientCacheFactory to see what extra args can be passed.
     """
