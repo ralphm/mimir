@@ -262,6 +262,9 @@ def makeService(config):
     sm = component.buildServiceManager(config["jid"], config["secret"],
             ("tcp:%s:%s" % (config["rhost"], config["rport"])))
 
+    # wait for no more than 15 minutes to try to reconnect
+    sm.getFactory().maxDelay = 900
+
     if config["verbose"]:
         LogService().setServiceParent(sm)
 
