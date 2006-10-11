@@ -1,11 +1,12 @@
-from twisted.application import service
 from twisted.internet import defer
 from twisted.words.protocols.jabber import jid
 from twisted.words.xish import domish
 
+import service
+
 domish.Element.__unicode__ = domish.Element.__str__
 
-class Storage(service.Service):
+class Storage(object):
     def __init__(self, dbpool):
         self._dbpool = dbpool 
         self._dbpool.runOperation("""UPDATE presences
@@ -125,13 +126,11 @@ class Storage(service.Service):
 class Monitor(service.Service):
     def __init__(self, storage):
         self.storage = storage
-        self.xmlstream = None
         self.callbacks = []
 
-    def connected(self, xmlstream):
-        self.xmlstream = xmlstream
-        xmlstream.addObserver('/presence', self.on_presence)
-        xmlstream.send('<presence/>')
+    def connectionAuthenticated(self, xs):
+        xs.addObserver('/presence', self.on_presence)
+        self.send('<presence/>')
         self.deferred = defer.succeed(None)
 
     def register_callback(self, f):
@@ -191,9 +190,9 @@ class Monitor(service.Service):
 
 class RosterMonitor(Monitor):
 
-    def connected(self, xmlstream):
-        xmlstream.send("<iq type='get'><query xmlns='jabber:iq:roster'/></iq>")
-        Monitor.connected(self, xmlstream)
+    def connectionAuthenticated(self, xs):
+        self.send("<iq type='get'><query xmlns='jabber:iq:roster'/></iq>")
+        Monitor.connectionAuthenticated(self, xs)
 
     def on_subscribe(self, presence):
         entity = jid.JID(presence["from"])
@@ -201,11 +200,11 @@ class RosterMonitor(Monitor):
         reply = domish.Element(('jabber:client', 'presence'))
         reply['to'] = entity.full()
         reply['type'] = 'subscribed'
-        self.xmlstream.send(reply)
+        self.send(reply)
        
         # return the favour
         reply['type'] = 'subscribe'
-        self.xmlstream.send(reply)
+        self.send(reply)
     
     def on_subscribed(self, presence):
         entity = jid.JID(presence["from"])
@@ -217,11 +216,11 @@ class RosterMonitor(Monitor):
         reply = domish.Element(('jabber:client', 'presence'))
         reply['to'] = entity.full()
         reply['type'] = 'unsubscribed'
-        self.xmlstream.send(reply)
+        self.send(reply)
        
         # return the favour
         reply['type'] = 'unsubscribe'
-        self.xmlstream.send(reply)
+        self.send(reply)
 
     def on_unsubscribed(self, presence):
         entity = jid.JID(presence["from"])

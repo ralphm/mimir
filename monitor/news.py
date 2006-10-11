@@ -1,10 +1,11 @@
-from twisted.application import service
 from twisted.python import failure
 from twisted.internet import reactor
 from twisted.words.xish import domish
 import re
+import service
 
 SGMLTAG = re.compile('<.+?>', re.DOTALL)
+NS_PUBSUB_EVENT = 'http://jabber.org/protocol/pubsub#event'
 
 domish.Element.__unicode__ = domish.Element.__str__
 
@@ -16,10 +17,9 @@ class Monitor(service.Service):
         self._dbpool = dbpool
         presence_monitor.register_callback(self.onPresenceChange)
 
-    def connected(self, xmlstream):
-        self.xmlstream = xmlstream
-        xmlstream.addObserver('/message/event[@xmlns="http://jabber.org/protocol/pubsub#event"]/items', self.onEvent)
-
+    def connectionAuthenticated(self, xs):
+        xs.addObserver('/message/event[@xmlns="%s"]/items' % NS_PUBSUB_EVENT,
+                       self.onEvent)
 
     def error(self, failure):
         print failure
@@ -211,7 +211,7 @@ class Monitor(service.Service):
             oob.addElement('desc', None, title)
 
         print "Sending: %s" % repr(message.toXml())
-        self.xmlstream.send(message)
+        self.send(message)
 
     def notify(self, result):
         channel_title, notifications, items = result

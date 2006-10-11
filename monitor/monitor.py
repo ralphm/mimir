@@ -1,25 +1,18 @@
-#!/usr/local/bin/python
-
+from twisted.application.service import Application
 from twisted.enterprise import adbapi
-from twisted.words.protocols.jabber.client import basicClientFactory
-from twisted.words.protocols.jabber import jid, xmlstream
-from twisted.words.xish import domish
-from twisted.internet import reactor
-import presence
-import news
+from twisted.words.protocols.jabber import jid
+import client, news, presence, service
 
 config = {
-    'user': 'mimir',
-    'host': 'ik.nu',
-    'resource': 'news_monitor',
+    'jid': jid.JID('mimir@ik.nu/news_monitor'),
     'secret': '35t120p',
     'dbuser': 'ralphm',
     'dbname': 'mimir'
 }
 
-class Log:
+class LogService(service.Service):
 
-    def connected(self, xmlstream):
+    def connectionMade(self, xmlstream):
         xmlstream.rawDataInFn = self.rawDataIn
         xmlstream.rawDataOutFn = self.rawDataOut
 
@@ -29,7 +22,12 @@ class Log:
     def rawDataOut(self, buf):
         print "SEND: %s" % unicode(buf, 'utf-8').encode('ascii', 'replace')
 
-log = Log()
+application = Application("test")
+clientService = client.buildClientServiceManager(config['jid'],
+                                                 config['secret'])
+clientService.factory.maxDelay = 900
+clientService.setServiceParent(application)
+LogService().setServiceParent(clientService)
 dbpool = adbapi.ConnectionPool('pyPgSQL.PgSQL',
                                user=config["dbuser"],
                                database=config["dbname"],
@@ -38,15 +36,7 @@ dbpool = adbapi.ConnectionPool('pyPgSQL.PgSQL',
                                cp_max = 1
                                )
 ms = presence.Storage(dbpool)
-presence_monitor = presence.RosterMonitor(ms)
-news_monitor = news.Monitor(presence_monitor, dbpool)
-cf = basicClientFactory(jid.JID(tuple = (config["user"],
-                                         config["host"],
-                                         config["resource"])),
-                        config["secret"])
-cf.maxDelay = 900
-cf.addBootstrap(xmlstream.STREAM_AUTHD_EVENT, log.connected)
-cf.addBootstrap(xmlstream.STREAM_AUTHD_EVENT, presence_monitor.connected)
-cf.addBootstrap(xmlstream.STREAM_AUTHD_EVENT, news_monitor.connected)
-reactor.connectTCP(config["host"], 5222, cf)
-reactor.run()
+presenceMonitor = presence.RosterMonitor(ms)
+presenceMonitor.setServiceParent(clientService)
+newsMonitor = news.Monitor(presenceMonitor, dbpool)
+newsMonitor.setServiceParent(clientService)
