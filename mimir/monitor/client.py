@@ -28,7 +28,10 @@ class XMPPTCPClient(internet.TCPClient):
         return c
 
 def buildClientServiceManager(jid, password):
-    factory = client.XMPPClientFactory(jid, password)
+    try:
+        factory = client.XMPPClientFactory(jid, password)
+    except:
+        factory = client.basicClientFactory(jid, password)
     svc = service.ServiceManager(factory)
     client_svc = XMPPTCPClient(jid.host, factory)
     client_svc.setServiceParent(svc)

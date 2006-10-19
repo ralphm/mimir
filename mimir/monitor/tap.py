@@ -35,7 +35,8 @@ def makeService(config):
                                                      config['secret'])
     clientService.factory.maxDelay = 900
 
-    LogService().setServiceParent(clientService)
+    if config["verbose"]:
+        LogService().setServiceParent(clientService)
 
     dbpool = adbapi.ConnectionPool('pyPgSQL.PgSQL',
                                    user=config["dbuser"],

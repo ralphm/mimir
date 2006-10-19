@@ -31,11 +31,15 @@ class TimeoutError(Exception):
 class AggregatorService(component.Service):
     """
     Feed aggregator service.
+
+    @ivar feedListFile: file that holds the list of feeds
+    @type feedListFile: L{str}
     """
 
     agent = "MimirAggregator/%s (http://mimir.ik.nu/)" % __version__
 
-    def __init__(self):
+    def __init__(self, feedListFile):
+        self.feedListFile = feedListFile
         self._runningQueries = {}
         
     def _callLater(self, *args, **kwargs):
@@ -44,6 +48,33 @@ class AggregatorService(component.Service):
         """
 
         return reactor.callLater(*args, **kwargs)
+
+    def readFeeds(self):
+        """
+        Initialize list of feeds
+        """
+
+        f = file(self.feedListFile)
+        feedList = [line.split() for line in f.readlines()]
+        f.close()
+
+        self.feeds = {}
+        for handle, url in feedList:
+            self.feeds[handle] = {'handle': handle,
+                                  'url': url}
+
+    def writeFeeds(self):
+        """
+        Write out list of feeds
+        """
+
+        feedList = ["%s %s\n" % (f['handle'], f['url'])
+                     for f in self.feeds.itervalues()]
+        feedList.sort()
+
+        f = file(self.feedListFile, 'w')
+        f.writelines(feedList)
+        f.close()
 
     def startService(self):
         """
@@ -54,47 +85,17 @@ class AggregatorService(component.Service):
 
         self.writer = writer.MimirWriter()
 
-        feeds = {}
-
-        # Read feed list
-        f = file('feeds')
-        feed_list = [line.split() for line in f.readlines()]
-        f.close()
-
-        # Update feed data using feed list
-
-        self.feeds = {}
         self.schedule = {}
         self._runningQueries = {}
 
-        for handle, url in feed_list:
-            if feeds.has_key(handle):
-                feed = feeds[handle]
-
-                # track url changes, and reset cache parameters
-                if url != feed['url']:
-                    feed['url'] = url
-                    feed['etag'] = None
-                    feed['last-modified'] = None
-
-                self.feeds[handle] = feed
-            else:
-                self.feeds[handle] = {'handle': handle,
-                                      'url': url}
+        self.readFeeds()
 
         component.Service.startService(self)
 
     def stopService(self):
         log.msg('Stopping Aggregator')
 
-        # save feed file
-        feed_list = ["%s %s\n" % (f['handle'], f['url'])
-                     for f in self.feeds.itervalues()]
-        feed_list.sort()
-
-        f = file('feeds', 'w')
-        f.writelines(feed_list)
-        f.close()
+        self.writeFeeds()
 
         component.Service.stopService(self)
 
@@ -154,6 +155,7 @@ class AggregatorService(component.Service):
             feed =  {'handle': handle,
                      'url': url}
             self.feeds[handle] = feed
+            self.writeFeeds()
             self.schedule[handle] = self._callLater(0, self.start,
                                                        feed,
                                                        useCache=0)
@@ -185,6 +187,7 @@ class AggregatorService(component.Service):
             log.msg("%s: Feed's location changed permanently to %s" %
                     (feed['handle'], result.url))
             feed['url'] = result.url
+            self.writeFeeds()
         
         if result.feed:
             log.msg("%s: Got feed." % feed["handle"])

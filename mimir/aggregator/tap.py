@@ -13,6 +13,7 @@ from mimir.common.log import LogService
 
 class Options(usage.Options):
     optParameters = [
+        ('feeds', None, 'feeds', 'File that holds the list of feeds'),
         ('jid', None, None),
         ('secret', None, 'secret'),
         ('rhost', None, '127.0.0.1'),
@@ -33,6 +34,6 @@ def makeService(config):
     if config["verbose"]:
         LogService().setServiceParent(sm)
 
-    AggregatorService().setServiceParent(sm)
+    AggregatorService(config['feeds']).setServiceParent(sm)
 
     return sm

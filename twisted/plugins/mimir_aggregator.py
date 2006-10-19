@@ -8,5 +8,3 @@ MimirAggregator = _tapHelper(
         "mimir.aggregator.tap",
         "Mimir Feed Aggregator and Feeder",
         "aggregator")
-
-
