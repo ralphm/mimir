@@ -9,12 +9,12 @@ and continuously aggregates a collection of Atom and RSS feeds, parses them and
 republishes them via Jabber publish-subscribe.
 """
 
-import fetcher, writer
-from twisted.python import log
 from twisted.internet import reactor, defer
-from twisted.words.protocols.jabber import component, client, xmlstream
+from twisted.python import log
+from twisted.words.protocols.jabber import component, xmlstream
 from twisted.words.protocols.jabber.error import StanzaError
-from twisted.words.xish import domish
+
+from mimir.aggregator import fetcher, writer
 
 __version__ = "0.3.0"
 
@@ -52,7 +52,7 @@ class AggregatorService(component.Service):
         log.FileLogObserver.timeFormat = "%Y/%m/%d %H:%M:%S %Z"
         log.msg('Starting Aggregator')
 
-        self.writer = writer.AtomWriter()
+        self.writer = writer.MimirWriter()
 
         feeds = {}
 
@@ -299,29 +299,3 @@ class AggregatorService(component.Service):
     def munchError(self, failure, feed):
         log.msg("%s: unhandled error:" % feed["handle"])
         log.err(failure)
-
-class LogService(component.Service):
-
-    def transportConnected(self, xs):
-        xs.rawDataInFn = self.rawDataIn
-        xs.rawDataOutFn = self.rawDataOut
-
-    def rawDataIn(self, buf):
-        log.msg("RECV: %r" % buf)
-
-    def rawDataOut(self, buf):
-        log.msg("SEND: %r" % buf)
-
-def makeService(config):
-    sm = component.buildServiceManager(config["jid"], config["secret"],
-            ("tcp:%s:%s" % (config["rhost"], config["rport"])))
-
-    # wait for no more than 15 minutes to try to reconnect
-    sm.getFactory().maxDelay = 900
-
-    if config["verbose"]:
-        LogService().setServiceParent(sm)
-
-    AggregatorService().setServiceParent(sm)
-
-    return sm

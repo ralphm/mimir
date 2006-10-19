@@ -1,3 +1,6 @@
+# Copyright (c) 2005-2006 Ralph Meijer
+# See LICENSE for details
+
 from zope.interface import implements, Interface
 from twisted.application import service
 from twisted.words.protocols.jabber import xmlstream

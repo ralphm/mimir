@@ -6,7 +6,8 @@ from twisted.trial import unittest
 from twisted.test.proto_helpers import StringTransport
 from twisted.internet import task
 from twisted.words.protocols.jabber import xmlstream
-from aggregator import aggregator
+
+from mimir.aggregator import aggregator
 
 class TestableAggregatorService(aggregator.AggregatorService):
 

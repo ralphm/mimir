@@ -1,8 +1,13 @@
-from twisted.python import failure
-from twisted.internet import reactor
-from twisted.words.xish import domish
+# Copyright (c) 2005-2006 Ralph Meijer
+# See LICENSE for details
+
 import re
-import service
+
+from twisted.internet import reactor
+from twisted.python import failure
+from twisted.words.xish import domish
+
+from mimir.monitor import service
 
 SGMLTAG = re.compile('<.+?>', re.DOTALL)
 NS_PUBSUB_EVENT = 'http://jabber.org/protocol/pubsub#event'

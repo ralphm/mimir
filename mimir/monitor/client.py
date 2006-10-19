@@ -1,7 +1,11 @@
+# Copyright (c) 2005-2006 Ralph Meijer
+# See LICENSE for details
+
 from twisted.application import internet
 from twisted.names.srvconnect import SRVConnector
 from twisted.words.protocols.jabber import client
-import service
+
+from mimir.monitor import service
 
 class XMPPClientConnector(SRVConnector):
     def __init__(self, reactor, domain, factory):

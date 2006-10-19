@@ -1,8 +1,11 @@
+# Copyright (c) 2005-2006 Ralph Meijer
+# See LICENSE for details
+
 from twisted.internet import defer
 from twisted.words.protocols.jabber import jid
 from twisted.words.xish import domish
 
-import service
+from mimir.monitor import service
 
 domish.Element.__unicode__ = domish.Element.__str__
 

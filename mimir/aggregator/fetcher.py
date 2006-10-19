@@ -8,11 +8,12 @@ This module implements asynchronous download of RSS and Atom feeds via
 HTTP, that are subsequently parsed using the Universal Feed Parser.
 """
 
-from twisted.web import client, error
+import copy
+import feedparser
+
 from twisted.internet import defer, reactor
 from twisted.python import failure
-import feedparser
-import copy
+from twisted.web import client, error
 
 feeds = ['http://test.ralphm.net/blog/atom']
 
