@@ -9,15 +9,16 @@ from twisted.python import usage
 from twisted.words.protocols.jabber import component
 
 from mimir.aggregator.aggregator import AggregatorService
+from mimir.common.fallback import FallbackService
 from mimir.common.log import LogService
 
 class Options(usage.Options):
     optParameters = [
         ('feeds', None, 'feeds', 'File that holds the list of feeds'),
-        ('jid', None, None),
-        ('secret', None, 'secret'),
-        ('rhost', None, '127.0.0.1'),
-        ('rport', None, '5347'),
+        ('jid', None, 'aggregator', 'JID of this component'),
+        ('secret', None, 'secret', 'Secret to connect to upstream server'),
+        ('rhost', None, '127.0.0.1', 'Upstream server address'),
+        ('rport', None, '5347', 'Upstream server port'),
     ]
 
     optFlags = [
@@ -31,9 +32,12 @@ def makeService(config):
     # wait for no more than 15 minutes to try to reconnect
     sm.getFactory().maxDelay = 900
 
+    FallbackService().setServiceParent(sm)
+
     if config["verbose"]:
         LogService().setServiceParent(sm)
 
-    AggregatorService(config['feeds']).setServiceParent(sm)
+    ag = AggregatorService(config['feeds'])
+    ag.setServiceParent(sm)
 
     return sm

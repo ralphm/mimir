@@ -21,7 +21,6 @@ __version__ = "0.3.0"
 INTERVAL = 1800
 TIMEOUT = 300
 NS_AGGREGATOR = 'http://mimir.ik.nu/protocol/aggregator'
-NS_XMPP_STANZAS = 'urn:ietf:params:xml:ns:xmpp-stanzas'
 
 class TimeoutError(Exception):
     """
@@ -41,7 +40,7 @@ class AggregatorService(component.Service):
     def __init__(self, feedListFile):
         self.feedListFile = feedListFile
         self._runningQueries = {}
-        
+
     def _callLater(self, *args, **kwargs):
         """
         Make callLater calls indirect for testing purposes.
@@ -100,10 +99,6 @@ class AggregatorService(component.Service):
         component.Service.stopService(self)
 
     def componentConnected(self, xs):
-        self.xmlstream = xs
-
-        xs.addObserver('/iq[@type="set"]', self.iqFallback, -1)
-        xs.addObserver('/iq[@type="get"]', self.iqFallback, -1)
         xs.addObserver('/iq[@type="set"]/aggregator[@xmlns="' +
                               NS_AGGREGATOR + '"]/feed', self.onFeed, 0)
        
@@ -123,18 +118,10 @@ class AggregatorService(component.Service):
             delay += 5
 
     def componentDisconnected(self):
-        self.xmlstream = None
-
         calls = self.schedule.values()
         self.schedule = {}
         for call in calls:
             call.cancel()
-
-    def iqFallback(self, iq):
-        if iq.handled == True:
-            return
-
-        self.xmlstream.send(StanzaError('service-unavailable').toResponse(iq))
 
     def onFeed(self, iq):
         handle = str(iq.aggregator.feed.handle or '')
@@ -162,7 +149,7 @@ class AggregatorService(component.Service):
         else:
             iq = StanzaError('bad-request').toResponse(iq)
     
-        self.xmlstream.send(iq)
+        self.send(iq)
 
     def start(self, feed, headers=None, useCache=1):
         del self.schedule[feed['handle']]
@@ -211,9 +198,9 @@ class AggregatorService(component.Service):
     def publishEntries(self, entries, feed):
         log.msg("%s: publishing items" % feed["handle"])
         
-        iq = xmlstream.IQ(self.xmlstream, 'set')
+        iq = xmlstream.IQ(self.parent.xmlstream, 'set')
         iq['to'] = 'pubsub.ik.nu'
-        iq['from'] = self.xmlstream.thisHost
+        iq['from'] = self.parent.xmlstream.thisHost
         iq.addElement(('http://jabber.org/protocol/pubsub', 'pubsub'))
         iq.pubsub.addElement('publish')
         iq.pubsub.publish["node"] = 'mimir/news/%s' % feed["handle"]
@@ -231,7 +218,7 @@ class AggregatorService(component.Service):
             d.errback(TimeoutError("IQ timed out"))
 
             try:
-                del self.xmlstream.iqDeferreds[id]
+                del self.parent.xmlstream.iqDeferreds[id]
             except KeyError:
                 pass
 
