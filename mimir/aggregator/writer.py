@@ -116,6 +116,12 @@ class AtomWriter(object):
 
         return elements
 
+    def _generate_feedburner_origlink(self, data):
+        element = domish.Element(('http://rssnamespace.org/feedburner/ext/1.0',
+                                  'origLink'))
+        element.addContent(data)
+        return element
+
     def _generate_id(self, data):
         return self.generate_element('id', data)
 
