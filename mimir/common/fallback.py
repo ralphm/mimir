@@ -2,25 +2,27 @@
 # See LICENSE for details
 
 """
-Unhandled messages fallback services
+Unhandled messages fallback handler
 """
 
-from twisted.words.protocols.jabber import component, error
+from twisted.words.protocols.jabber import error
+from mimir.common import extension
 
-class FallbackService(component.Service):
+class FallbackHandler(extension.ExtensionProtocol):
     """
-    Service that catches unhandled iq requests.
+    Protocol handler that catches unhandled iq requests.
 
-    Unhandled iq requests are replied to with a service-unavailable
-    stanza error.
+    Unhandled iq requests are replied to with a service-unavailable stanza
+    error.
     """
 
-    def componentConnected(self, xs):
-        xs.addObserver('/iq[@type="set"]', self.iqFallback, -1)
-        xs.addObserver('/iq[@type="get"]', self.iqFallback, -1)
+    def connectionInitialized(self):
+        self.xmlstream.addObserver('/iq[@type="set"]', self.iqFallback, -1)
+        self.xmlstream.addObserver('/iq[@type="get"]', self.iqFallback, -1)
         
     def iqFallback(self, iq):
         if iq.handled == True:
             return
 
-        self.send(error.StanzaError('service-unavailable').toResponse(iq))
+        reply = error.StanzaError('service-unavailable')
+        self.xmlstream.send(reply.toResponse(iq))

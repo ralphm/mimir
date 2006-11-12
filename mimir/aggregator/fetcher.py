@@ -12,8 +12,7 @@ import copy
 import feedparser
 
 from twisted.internet import defer, reactor
-from twisted.python import failure
-from twisted.web import client, error
+from twisted.web import client
 
 feeds = ['http://test.ralphm.net/blog/atom']
 

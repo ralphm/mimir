@@ -1,30 +1,50 @@
 # Copyright (c) 2005-2006 Ralph Meijer
 # See LICENSE for details
 
-import re
+import re, time
 
+import feedparser, simplejson
+
+from zope.interface import Interface, implements
+
+from twisted.application import service
 from twisted.internet import reactor
-from twisted.python import failure
+from twisted.python import components, failure
 from twisted.words.xish import domish
 
-from mimir.monitor import service
+from mimir.common import extension, pubsub
 
 SGMLTAG = re.compile('<.+?>', re.DOTALL)
-NS_PUBSUB_EVENT = 'http://jabber.org/protocol/pubsub#event'
+NS_ATOM = 'http://www.w3.org/2005/Atom'
 
-domish.Element.__unicode__ = domish.Element.__str__
+class FeedParserEncoder(simplejson.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, time.struct_time):
+            return dict([(attr, getattr(obj, attr)) for attr in dir(obj)
+                                                  if attr.startswith('tm_')])
+        else:
+            return simplejson.JSONEncoder.default(self, obj)
 
 class NoNotify(Exception):
     pass
 
-class Monitor(service.Service):
-    def __init__(self, presence_monitor, dbpool):
-        self._dbpool = dbpool
-        presence_monitor.register_callback(self.onPresenceChange)
+class INewsService(Interface):
 
-    def connectionAuthenticated(self, xs):
-        xs.addObserver('/message/event[@xmlns="%s"]/items' % NS_PUBSUB_EVENT,
-                       self.onEvent)
+    def process(channel, items):
+        """
+        Process new items for channel
+
+        @param items: atom entries
+        @type items: L{domish.Element}
+        """
+
+class NewsService(service.Service):
+
+    implements(INewsService)
+
+    def __init__(self, presenceMonitor, dbpool):
+        self._dbpool = dbpool
+        presenceMonitor.register_callback(self.onPresenceChange)
 
     def error(self, failure):
         print failure
@@ -37,16 +57,16 @@ class Monitor(service.Service):
             show = 'offline'
 
         print "  presence change to %s for %s", (show, repr(entity.full()))
-        reactor.callLater(5, self.page_notify, entity, show)
+        reactor.callLater(5, self.pageNotify, entity, show)
 
-    def page_notify(self, entity, show):
-        d = self._dbpool.runInteraction(self._check_notify, entity, show)
-        d.addCallback(self._do_notify, entity)
-        d.addCallback(self._set_notified)
+    def pageNotify(self, entity, show):
+        d = self._dbpool.runInteraction(self._checkNotify, entity, show)
+        d.addCallback(self._doNotify, entity)
+        d.addCallback(self._setNotified)
         d.addErrback(lambda failure: failure.trap(NoNotify))
         d.addErrback(self.error)
 
-    def _check_notify(self, cursor, entity, show):
+    def _checkNotify(self, cursor, entity, show):
         cursor.execute("""SELECT user_id, message_type, ssl,
                                  count(news_id) as count
                           FROM auth_user
@@ -70,8 +90,8 @@ class Monitor(service.Service):
 
         return result
 
-    def _do_notify(self, result, entity):
-        user_id, message_type, ssl, count = result
+    def _doNotify(self, result, entity):
+        userId, messageType, ssl, count = result
 
         title = u'New news on Mim\xedr!'
         link = "%s://mimir.ik.nu/news" % (ssl and 'https' or 'http')
@@ -82,35 +102,21 @@ class Monitor(service.Service):
             description += 'are %s new items' % count
         description += ' on your news page'
 
-        self.send_notification(entity.full(), True, message_type,
-                               title, link, description)
-        return user_id
+        self.notifier.sendNotification(entity.full(), True, messageType,
+                                       title, link, description)
+        return userId
 
-    def _set_notified(self, user_id):
+    def _setNotified(self, userId):
         return self._dbpool.runOperation("""UPDATE news_page SET notified=true
-                                            WHERE user_id=%s""", user_id)
-
-    def onEvent(self, message):
-        node = message.event.items["node"]
-
-        m = re.match(r"^mimir/news/(.+)$", node)
-
-        if not m:
-            return
-
-        channel = m.group(1)
-
-        items = (e for e in message.event.items.elements()
-                   if e.name == 'item' and e.news is not None)
-
-        self.process(channel, items)
+                                            WHERE user_id=%s""", userId)
 
     def process(self, channel, items):
-        d = self._dbpool.runInteraction(self._process_items, channel, items)
+        print "Got entries: %r" % items
+        d = self._dbpool.runInteraction(self._processItems, channel, items)
         d.addCallback(self.notify)
         d.addErrback(self.error)
 
-    def _process_items(self, cursor, channel, items):
+    def _processItems(self, cursor, channel, items):
 
         # Get channel title
         cursor.execute("SELECT title from channels WHERE channel=%s",
@@ -118,6 +124,13 @@ class Monitor(service.Service):
         title = cursor.fetchone()[0]
 
         print "Channel title: %s" % repr(title)
+
+        feedDocument = domish.Element((NS_ATOM, 'feed'))
+        for item in items:
+            feedDocument.addChild(item)
+
+        feed = feedparser.parse(feedDocument.toXml().encode('utf-8'))
+        entries = feed.entries
 
         # Get notify list, including preferences
         cursor.execute("""SELECT user_id, jid, notify,
@@ -129,59 +142,100 @@ class Monitor(service.Service):
                           WHERE NOT suspended AND channel=%s""",
                        channel)
 
-        notify_list = cursor.fetchall()
+        notifyList = cursor.fetchall()
 
         # split notify list into a list of entities that are to be notified
         # and a list of entities that will get items marked as unread
         notifications = []
-        mark_unread = []
-        for user_id, jid, notify, description_in_notify, message_type, \
-            store_offline, notify_items in \
-                notify_list:
-            if notify and notify_items:
+        markUnread = []
+        for userId, jid, notify, descriptionInNotify, messageType, \
+            storeOffline, notifyItems in \
+                notifyList:
+            if notify and notifyItems:
                 notifications.append((jid,
-                                      description_in_notify,
-                                      message_type))
-            elif store_offline:
-                mark_unread.append(user_id)
+                                      descriptionInNotify,
+                                      messageType))
+            elif storeOffline:
+                markUnread.append(userId)
 
         # store items and mark unread
-        notify_items = []
-        for item in items:
-            news_id = self._store_item(cursor, channel, item)
-            if news_id:
-                for user_id in mark_unread:
+        notifyItems = []
+        for entry in entries:
+            newsId = self._storeItem(cursor, channel, entry)
+            if newsId:
+                for userId in markUnread:
                     cursor.execute("""INSERT INTO news_flags
                                       (user_id, news_id, unread) VALUES
                                       (%s, %s, true)""",
-                                   (user_id, news_id))
+                                   (userId, newsId))
                     cursor.execute("""UPDATE news_page SET notified=false
                                       WHERE user_id=%s""",
-                                   user_id)
+                                   userId)
 
-                notify_items.append(item)
-        return (title, notifications, notify_items)
+                notifyItems.append(entry)
+        return (title, notifications, notifyItems)
 
-    def _store_item(self, cursor, channel, item):
-        title = unicode(item.news.title or '')
-        link = unicode(item.news.link or '')
-        description = unicode(item.news.description or '')
+    def _extractBasics(self, entry):
+        if 'title' in entry:
+            title = entry.title
 
-        print "Storing item: %s" % repr(item.toXml())
+            if 'source' in entry and 'title' in entry.source:
+                content = "%s: %s" % (entry.source.title, title)
+
+            if entry.title_detail == 'text/plain':
+                title = feedparser._xmlescape(title)
+        else:
+            title = u''
+
+        if 'link' in entry:
+            link = entry.get('feedburner_origlink', entry.link)
+        else:
+            link = u''
+
+        # Find a description. First try full text, then summary.
+        content = None
+        if 'content' in entry:
+            content = entry.content[0]
+        elif 'summary' in entry:
+            content = entry.summary_detail
+
+        if content:
+            value = content.value
+            if content.type == 'text/plain':
+                value = feedparser._xmlescape(value)
+            description = value
+        else:
+            description = u''
+
+        date = None
+        for attribute in 'updated', 'published', 'created':
+            if attribute in entry:
+                date = getattr(entry, '%s_parsed' % attribute)
+
+        date = time.strftime("%Y-%m-%d %H:%M:%Sz", date or time.gmtime())
+
+        return title, link, description, date
+
+    def _storeItem(self, cursor, channel, entry):
+        title, link, description, date = self._extractBasics(entry)
+        json = simplejson.dumps(entry, cls=FeedParserEncoder)
+
+        print "Storing item: %s" % repr(entry)
 
         cursor.execute("""UPDATE news
-                          SET title=%s, description=%s, date=now()
+                          SET title=%s, description=%s, date=%s, parsed=%s
                           WHERE channel=%s AND link=%s""",
-                       (title, description, channel, link))
+                       (title, description, date, json, channel, link))
 
         if cursor.rowcount == 1:
             print "UPDATE"
             return None
 
         cursor.execute("""INSERT INTO news
-                          (channel, title, link, description) VALUES
-                          (%s, %s, %s, %s)""",
-                       (channel, title, link, description))
+                          (channel, title, link, description, date, parsed)
+                          VALUES
+                          (%s, %s, %s, %s, %s, %s)""",
+                       (channel, title, link, description, date, json))
 
         print "INSERT",
 
@@ -189,25 +243,46 @@ class Monitor(service.Service):
                           WHERE channel=%s and link=%s""",
                           (channel, link))
 
-        news_id = cursor.fetchone()[0]
+        newsId = cursor.fetchone()[0]
 
-        print news_id
-        return news_id
+        print newsId
+        return newsId
 
-    def send_notification(self, jid, description_in_notify, message_type,
-                          title, link, description):
+    def notify(self, result):
+        channelTitle, notifications, entries = result
+
+        for entry in entries:
+            title = "%s: %s" % (channelTitle,
+                                entry.get('title', u'-- no title --'))
+            link = entry.get('link', '')
+            description = entry.get('summary')
+
+            if description:
+                description = SGMLTAG.sub('', description)
+                description = domish.unescapeFromXml(description)
+                description = description.rstrip() or None
+
+            for jid, descriptionInNotify, messageType in notifications:
+                self.notifier.sendNotification(jid, descriptionInNotify,
+                                               messageType, title, link,
+                                               description)
+
+class XMPPHandlerFromService(pubsub.PubSubClient):
+
+    def sendNotification(self, jid, descriptionInNotify, messageType,
+                         title, link, description):
         
-        message = domish.Element(('jabber:client', 'message'))
+        message = domish.Element((None, 'message'))
         message['to'] = jid
-        message['type'] = message_type
+        message['type'] = messageType
 
-        if message_type == 'chat':
+        if messageType == 'chat':
             body = "%s\n%s" % (title, link)
-            if description and description_in_notify:
+            if description and descriptionInNotify:
                 body += "\n\n%s\n\n" % description
 
             message.addElement('body', None, body)
-        elif message_type == 'headline':
+        elif messageType == 'headline':
             message.addElement('subject', None, title)
             if description:
                 message.addElement('body', None, description)
@@ -218,19 +293,19 @@ class Monitor(service.Service):
         print "Sending: %s" % repr(message.toXml())
         self.send(message)
 
-    def notify(self, result):
-        channel_title, notifications, items = result
+    def itemsReceived(self, node, items):
+        m = re.match(r"^mimir/news/(.+)$", node)
 
-        for item in items:
-            title = "%s: %s" % (channel_title,
-                                unicode(item.news.title or '-- no title --'))
-            link = unicode(item.news.link or '')
-            description = unicode(item.news.description or '') or None
-            if description:
-                description = SGMLTAG.sub('', description)
-                description = domish.unescapeFromXml(description)
-                description = description.rstrip() or None
+        if not m:
+            return
 
-            for jid, description_in_notify, message_type in notifications:
-                self.send_notification(jid, description_in_notify, message_type,
-                                       title, link, description)
+        channel = m.group(1)
+
+        entries = (item.entry for item in items
+                              if item.entry and item.entry.uri == NS_ATOM)
+
+        self.service.process(channel, entries)
+
+components.registerAdapter(XMPPHandlerFromService,
+                           INewsService,
+                           extension.IExtensionProtocol)

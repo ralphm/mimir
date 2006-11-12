@@ -1,21 +1,23 @@
 # Copyright (c) 2005-2006 Ralph Meijer
 # See LICENSE for details
 
-from twisted.internet import defer
 from twisted.words.protocols.jabber import jid
 from twisted.words.xish import domish
 
-from mimir.monitor import service
+from mimir.common import extension
 
 domish.Element.__unicode__ = domish.Element.__str__
 
 class Storage(object):
     def __init__(self, dbpool):
         self._dbpool = dbpool 
-        self._dbpool.runOperation("""UPDATE presences
-                                     SET type='unavailable', show='',
-                                         status='', priority=0
-                                     WHERE type='available'""")
+        d = self._dbpool.runOperation("""UPDATE presences
+                                         SET type='unavailable', show='',
+                                             status='', priority=0
+                                         WHERE type='available'""")
+        def eb(failure):
+            print failure
+        d.addErrback(eb)
 
     def set_presence(self, entity, available, show, status, priority):
         return self._dbpool.runInteraction(self._set_presence, entity,
@@ -126,15 +128,14 @@ class Storage(object):
         cursor.execute("DELETE FROM roster WHERE jid=%s", entity.userhost())
         cursor.execute("DELETE FROM presences WHERE jid=%s", entity.userhost())
 
-class Monitor(service.Service):
+class Monitor(extension.ExtensionProtocol):
     def __init__(self, storage):
         self.storage = storage
         self.callbacks = []
 
-    def connectionAuthenticated(self, xs):
-        xs.addObserver('/presence', self.on_presence)
+    def connectionInitialized(self):
+        self.xmlstream.addObserver('/presence', self.on_presence)
         self.send('<presence/>')
-        self.deferred = defer.succeed(None)
 
     def register_callback(self, f):
         self.callbacks.append(f)
@@ -150,8 +151,6 @@ class Monitor(service.Service):
 
         d.addCallback(cb, entity)
         d.addErrback(self.error)
-
-        self.deferred.addCallback(lambda _: d)
 
     def on_presence(self, presence):
         type = presence.getAttribute("type", None) or 'available'

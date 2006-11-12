@@ -1,11 +1,11 @@
 # Copyright (c) 2005-2006 Ralph Meijer
 # See LICENSE for details
 
-from twisted.application import internet
+from twisted.internet import reactor
 from twisted.names.srvconnect import SRVConnector
 from twisted.words.protocols.jabber import client
 
-from mimir.monitor import service
+from mimir.common.manager import StreamManager
 
 class XMPPClientConnector(SRVConnector):
     def __init__(self, reactor, domain, factory):
@@ -20,19 +20,29 @@ class XMPPClientConnector(SRVConnector):
 
         return host, port
 
-class XMPPTCPClient(internet.TCPClient):
+class Client(StreamManager):
+
+    def __init__(self, jid, password):
+        self.domain = jid.host
+
+        try:
+            factory = client.XMPPClientFactory(jid, password)
+        except:
+            factory = client.basicClientFactory(jid, password)
+
+        StreamManager.__init__(self, factory)
+
+    def startService(self):
+        StreamManager.startService(self)
+
+        self._connection = self._getConnection()
+
+    def stopService(self):
+        StreamManager.stopService(self)
+
+        self._connection.disconnect()
+
     def _getConnection(self):
-        from twisted.internet import reactor
-        c = XMPPClientConnector(reactor, *self.args, **self.kwargs)
+        c = XMPPClientConnector(reactor, self.domain, self.factory)
         c.connect()
         return c
-
-def buildClientServiceManager(jid, password):
-    try:
-        factory = client.XMPPClientFactory(jid, password)
-    except:
-        factory = client.basicClientFactory(jid, password)
-    svc = service.ServiceManager(factory)
-    client_svc = XMPPTCPClient(jid.host, factory)
-    client_svc.setServiceParent(svc)
-    return svc

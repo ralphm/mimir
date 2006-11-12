@@ -9,25 +9,36 @@ and continuously aggregates a collection of Atom and RSS feeds, parses them and
 republishes them via Jabber publish-subscribe.
 """
 
+from zope.interface import Interface, implements
+
+from twisted.application import service
 from twisted.internet import reactor, defer
-from twisted.python import log
-from twisted.words.protocols.jabber import component, xmlstream
+from twisted.python import components, log
 from twisted.words.protocols.jabber.error import StanzaError
 
 from mimir.aggregator import fetcher, writer
+from mimir.common import extension, pubsub
 
 __version__ = "0.3.0"
 
 INTERVAL = 1800
-TIMEOUT = 300
 NS_AGGREGATOR = 'http://mimir.ik.nu/protocol/aggregator'
 
-class TimeoutError(Exception):
-    """
-    No response has been received to our request within L{TIMEOUT} seconds.
-    """
+class IAggregatorService(Interface):
 
-class AggregatorService(component.Service):
+    def setFeed(handle, url):
+        """
+        Associate a feed URL to a handle.
+
+        If the handle is new, the feed is added to the aggregation schedule.
+
+        @param handle: feed handle.
+        @type handle: L{unicode}
+        @param url: feed URL.
+        @type url: L{str}
+        """
+    
+class AggregatorService(service.Service):
     """
     Feed aggregator service.
 
@@ -35,11 +46,14 @@ class AggregatorService(component.Service):
     @type feedListFile: L{str}
     """
 
+    implements(IAggregatorService)
+
     agent = "MimirAggregator/%s (http://mimir.ik.nu/)" % __version__
 
     def __init__(self, feedListFile):
         self.feedListFile = feedListFile
-        self._runningQueries = {}
+        self.writer = writer.AtomWriter()
+
 
     def _callLater(self, *args, **kwargs):
         """
@@ -79,29 +93,13 @@ class AggregatorService(component.Service):
         """
         Read feeds from file and initialize service.
         """
-        log.FileLogObserver.timeFormat = "%Y/%m/%d %H:%M:%S %Z"
+
         log.msg('Starting Aggregator')
-
-        self.writer = writer.MimirWriter()
-
-        self.schedule = {}
-        self._runningQueries = {}
+        service.Service.startService(self)
 
         self.readFeeds()
 
-        component.Service.startService(self)
-
-    def stopService(self):
-        log.msg('Stopping Aggregator')
-
-        self.writeFeeds()
-
-        component.Service.stopService(self)
-
-    def componentConnected(self, xs):
-        xs.addObserver('/iq[@type="set"]/aggregator[@xmlns="' +
-                              NS_AGGREGATOR + '"]/feed', self.onFeed, 0)
-       
+        self.schedule = {}
         delay = 0
         for feed in self.feeds.itervalues():
             headers = {}
@@ -113,45 +111,37 @@ class AggregatorService(component.Service):
                 headers['if-modified-since'] = last_modified
             
             self.schedule[feed['handle']] = self._callLater(delay,
-                                                            self.start,
+                                                            self.aggregate,
                                                             feed, headers)
             delay += 5
 
-    def componentDisconnected(self):
+    def stopService(self):
+        log.msg('Stopping Aggregator')
+        service.Service.stopService(self)
+
         calls = self.schedule.values()
         self.schedule = {}
         for call in calls:
             call.cancel()
 
-    def onFeed(self, iq):
-        handle = str(iq.aggregator.feed.handle or '')
-        url = str(iq.aggregator.feed.url or '')
+        self.writeFeeds()
 
-        iq.handled = True
 
-        if handle and url:
-            iq.swapAttributeValues('to', 'from')
-            iq["type"] = 'result'
-            iq.children = []
+    def setFeed(self, handle, url):
+        try:
+            self.schedule[handle].cancel()
+        except KeyError:
+            pass
 
-            try:
-                self.schedule[handle].cancel()
-            except KeyError:
-                pass
+        feed =  {'handle': handle,
+                 'url': url}
+        self.feeds[handle] = feed
+        self.writeFeeds()
+        self.schedule[handle] = self._callLater(0, self.aggregate,
+                                                   feed,
+                                                   useCache=0)
 
-            feed =  {'handle': handle,
-                     'url': url}
-            self.feeds[handle] = feed
-            self.writeFeeds()
-            self.schedule[handle] = self._callLater(0, self.start,
-                                                       feed,
-                                                       useCache=0)
-        else:
-            iq = StanzaError('bad-request').toResponse(iq)
-    
-        self.send(iq)
-
-    def start(self, feed, headers=None, useCache=1):
+    def aggregate(self, feed, headers=None, useCache=1):
         del self.schedule[feed['handle']]
 
         d = defer.maybeDeferred(fetcher.getFeed, feed['url'], agent=self.agent,
@@ -197,43 +187,13 @@ class AggregatorService(component.Service):
 
     def publishEntries(self, entries, feed):
         log.msg("%s: publishing items" % feed["handle"])
-        
-        iq = xmlstream.IQ(self.parent.xmlstream, 'set')
-        iq['to'] = 'pubsub.ik.nu'
-        iq['from'] = self.parent.xmlstream.thisHost
-        iq.addElement(('http://jabber.org/protocol/pubsub', 'pubsub'))
-        iq.pubsub.addElement('publish')
-        iq.pubsub.publish["node"] = 'mimir/news/%s' % feed["handle"]
+       
+        node = 'mimir/news/%s' % feed["handle"]
 
-        for entry in entries:
-            item = iq.pubsub.publish.addElement('item')
-            item["id"] = entry.id
-            item.addChild(self.writer.generate(entry))
+        items = [pubsub.Item(entry.id, self.writer.generate(entry))
+                 for entry in entries]
 
-        d = iq.send()
-        id = iq['id']
-
-        def timeout():
-            del self._runningQueries[id]
-            d.errback(TimeoutError("IQ timed out"))
-
-            try:
-                del self.parent.xmlstream.iqDeferreds[id]
-            except KeyError:
-                pass
-
-        def cancelTimeout(result):
-            try:
-                self._runningQueries[id].cancel()
-                del self._runningQueries[id]
-            except KeyError:
-                pass
-
-            return result
-
-        self._runningQueries[id] = self._callLater(TIMEOUT, timeout)
-        d.addBoth(cancelTimeout)
-        return d
+        return self.publisher.publish(node, items)
 
     def findFreshEntries(self, f, feed):
         def add(entry, kind):
@@ -278,7 +238,7 @@ class AggregatorService(component.Service):
 
     def reschedule(self, void, feed):
         self.schedule[feed['handle']] = self._callLater(INTERVAL,
-                                                        self.start,
+                                                        self.aggregate,
                                                         feed)
 
     def logNoFeed(self, failure, feed):
@@ -289,3 +249,35 @@ class AggregatorService(component.Service):
     def munchError(self, failure, feed):
         log.msg("%s: unhandled error:" % feed["handle"])
         log.err(failure)
+
+class XMPPControl(extension.ExtensionProtocol):
+    def __init__(self, service):
+        self.service = service
+
+    def connectionInitialized(self):
+        xpath = '/iq[@type="set"]/aggregator[@xmlns="%s"]/feed' % NS_AGGREGATOR
+        self.xmlstream.addObserver(xpath, self.onFeed, 0)
+
+    def onFeed(self, iq):
+        handle = str(iq.aggregator.feed.handle or '')
+        url = str(iq.aggregator.feed.url or '')
+
+        iq.handled = True
+
+        if handle and url:
+            try:
+                self.service.setFeed(handle, url)
+            except Exception, e:
+                print e
+                iq = StanzaError('internal-error').toResponse(iq)
+            else:
+                iq.swapAttributeValues('to', 'from')
+                iq["type"] = 'result'
+                iq.children = []
+        else:
+            iq = StanzaError('bad-request').toResponse(iq)
+    
+        self.send(iq)
+
+components.registerAdapter(XMPPControl, IAggregatorService,
+                                        extension.IExtensionProtocol)

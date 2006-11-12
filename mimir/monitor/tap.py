@@ -5,11 +5,12 @@
 Create a monitor service.
 """
 
+from twisted.application import service
 from twisted.enterprise import adbapi
 from twisted.python import usage
 from twisted.words.protocols.jabber import jid
 
-from mimir.common.log import LogService
+from mimir.common.extension import IExtensionProtocol
 from mimir.monitor import client, news, presence
 
 class Options(usage.Options):
@@ -29,14 +30,20 @@ class Options(usage.Options):
             self['jid'] = jid.JID(self['jid'])
         except jid.InvalidFormat:
             raise usage.UsageError("'%(jid)s' is not a valid Jabber ID" % self)
+
+        if not self['secret']:
+            raise usage.UsageError("No secret provided")
     
 def makeService(config):
-    clientService = client.buildClientServiceManager(config['jid'],
-                                                     config['secret'])
+    s = service.MultiService()
+
+    clientService = client.Client(config['jid'], config['secret'])
+    clientService.setServiceParent(s)
+
     clientService.factory.maxDelay = 900
 
     if config["verbose"]:
-        LogService().setServiceParent(clientService)
+        clientService.logTraffic = True
 
     dbpool = adbapi.ConnectionPool('pyPgSQL.PgSQL',
                                    user=config["dbuser"],
@@ -45,10 +52,16 @@ def makeService(config):
                                    cp_min = 1,
                                    cp_max = 1
                                    )
+
     ms = presence.Storage(dbpool)
     presenceMonitor = presence.RosterMonitor(ms)
-    presenceMonitor.setServiceParent(clientService)
-    newsMonitor = news.Monitor(presenceMonitor, dbpool)
-    newsMonitor.setServiceParent(clientService)
-    
-    return clientService
+    clientService.addExtension(presenceMonitor)
+
+    newsService = news.NewsService(presenceMonitor, dbpool)
+    newsService.setServiceParent(s)
+
+    xep = IExtensionProtocol(newsService)
+    newsService.notifier = xep
+    clientService.addExtension(xep)
+
+    return s

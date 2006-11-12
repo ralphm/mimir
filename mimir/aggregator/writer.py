@@ -134,6 +134,9 @@ class AtomWriter(object):
     def _generate_published(self, data):
         return self.generate_element('published', data)
 
+    def _generate_subtitle_detail(self, data):
+        return self.generate_text('subtitle', data)
+
     def _generate_summary_detail(self, data):
         return self.generate_text('summary', data)
 

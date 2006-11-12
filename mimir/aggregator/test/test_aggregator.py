@@ -2,49 +2,36 @@
 # See LICENSE for details
 
 from twisted.trial import unittest
-
-from twisted.test.proto_helpers import StringTransport
-from twisted.internet import task
 from twisted.words.protocols.jabber import xmlstream
 
 from mimir.aggregator import aggregator
 
-class TestableAggregatorService(aggregator.AggregatorService):
+class DummyManager(object):
+    def __init__(self):
+        self.outlist = []
 
-    def __init__(self, clock):
-        aggregator.AggregatorService.__init__(self)
-        self._callLater = clock.callLater
-        xs = xmlstream.XmlStream(xmlstream.Authenticator())
-        xs.transport = StringTransport()
-        xs.thisHost = 'example.com'
-        xs.connectionMade()
-        self.xmlstream = xs
+    def send(self, obj):
+        self.outlist.append(obj)
 
-class AggregatorServiceTest(unittest.TestCase):
+class DummyAggregator(object):
+    def __init__(self):
+        self.feeds = {}
 
-    def testPublishTimingOut(self):
-        timings = [1, aggregator.TIMEOUT]
-        clock = task.Clock()
-        a = TestableAggregatorService(clock)
+    def setFeed(self, handle, url):
+        self.feeds[handle] = url
 
-        d = a.publishEntries([], {'handle': 'test'})
-        self.assertFailure(d, aggregator.TimeoutError)
+class XMPPControlTest(unittest.TestCase):
+    def testOnFeed(self):
+        xc = aggregator.XMPPControl(DummyAggregator())
+        xc.manager = DummyManager()
 
-        clock.pump(timings)
-        self.failIf(clock.calls)
-        return d
-
-    def testPublishNotTimingOut(self):
-        timings = [1, 1]
-        clock = task.Clock()
-        a = TestableAggregatorService(clock)
-
-        d = a.publishEntries([], {'handle': 'test'})
-        id = a.xmlstream.iqDeferreds.keys()[0]
-
-        clock.callLater(1, a.xmlstream.dataReceived,
-                           "<stream><iq type='result' id='%s'/>" % id)
-        clock.pump(timings)
-        self.failIf(clock.calls)
-        return d
-
+        iq = xmlstream.IQ(None)
+        iq['to'] = 'user1@example.org'
+        iq['from'] = 'user2@example.org'
+        iq.addElement(('http://mimir.ik.nu/protocol/aggregator', 'aggregator'))
+        feed = iq.aggregator.addElement('feed') 
+        feed.addElement('handle', content='test')
+        feed.addElement('url', content='http://www.example.org/')
+        xc.onFeed(iq)
+        self.assertEquals(xc.manager.outlist[0]['type'], 'result')
+        self.assertEquals(xc.service.feeds['test'], 'http://www.example.org/')
