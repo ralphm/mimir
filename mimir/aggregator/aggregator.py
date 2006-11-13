@@ -15,6 +15,7 @@ from twisted.application import service
 from twisted.internet import reactor, defer
 from twisted.python import components, log
 from twisted.words.protocols.jabber.error import StanzaError
+from twisted.web import error
 
 from mimir.aggregator import fetcher, writer
 from mimir.common import extension, pubsub
@@ -242,7 +243,7 @@ class AggregatorService(service.Service):
                                                         feed)
 
     def logNoFeed(self, failure, feed):
-        failure.trap(fetcher.error.Error)
+        failure.trap(error.Error)
         error = failure.value
         log.msg("%s: No feed: %s" % (feed["handle"], error))
 
