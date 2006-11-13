@@ -102,20 +102,6 @@ class AtomWriter(object):
 
         return elements
 
-    def _generate_enclosures(self, data):
-        elements = []
-        for item in data:
-            element = domish.Element((None, 'link'))
-            element['rel'] = 'enclosure'
-
-            for key, value in item.iteritems():
-                if key in ['type', 'href', 'length']:
-                    element[key] = value
-
-            elements.append(element)
-
-        return elements
-
     def _generate_feedburner_origlink(self, data):
         element = domish.Element(('http://rssnamespace.org/feedburner/ext/1.0',
                                   'origLink'))
@@ -130,7 +116,7 @@ class AtomWriter(object):
         for item in data:
             element = domish.Element((None, 'link'))
             for key, value in item.iteritems():
-                if key in ['rel', 'type', 'href', 'title']:
+                if key in ['rel', 'type', 'href', 'hreflang', 'title', 'length']:
                     element[key] = value
 
             elements.append(element)
