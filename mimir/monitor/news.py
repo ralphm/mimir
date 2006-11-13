@@ -194,7 +194,7 @@ class NewsService(service.Service):
 
         # Find a description. First try full text, then summary.
         content = None
-        if 'content' in entry:
+        if 'content' in entry and entry.content[0].value:
             content = entry.content[0]
         elif 'summary' in entry:
             content = entry.summary_detail
