@@ -293,7 +293,7 @@ class XMPPHandlerFromService(pubsub.PubSubClient):
         print "Sending: %s" % repr(message.toXml())
         self.send(message)
 
-    def itemsReceived(self, node, items):
+    def itemsReceived(self, notifier, node, items):
         m = re.match(r"^mimir/news/(.+)$", node)
 
         if not m:

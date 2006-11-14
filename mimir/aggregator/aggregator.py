@@ -25,6 +25,23 @@ __version__ = "0.3.0"
 INTERVAL = 1800
 NS_AGGREGATOR = 'http://mimir.ik.nu/protocol/aggregator'
 
+class IFeedHandler(Interface):
+    """
+    Handle aggregated feeds.
+    """
+
+    def entriesDiscovered(self, handle, entries):
+        """
+        Called when new or updated entries have been discovered.
+
+        @param handle: handle for the feed the entries belong to.
+        @type handle: C{unicode}
+        @param entries: dictionary with entry details conforming to the
+                        output of the Universal Feed Parser.
+        @type entries: C{dict}
+        @rtype: L{defer.Deferred}
+        """
+
 class IAggregatorService(Interface):
 
     def setFeed(handle, url):
@@ -45,6 +62,8 @@ class AggregatorService(service.Service):
 
     @ivar feedListFile: file that holds the list of feeds
     @type feedListFile: L{str}
+    @ivar handler: handler of new and changed feed items.
+    @type handler: object implementing L{IFeedHandler}
     """
 
     implements(IAggregatorService)
@@ -53,8 +72,7 @@ class AggregatorService(service.Service):
 
     def __init__(self, feedListFile):
         self.feedListFile = feedListFile
-        self.writer = writer.AtomWriter()
-
+        self.handler = None
 
     def _callLater(self, *args, **kwargs):
         """
@@ -186,16 +204,6 @@ class AggregatorService(service.Service):
 
         return result
 
-    def publishEntries(self, entries, feed):
-        log.msg("%s: publishing items" % feed["handle"])
-       
-        node = 'mimir/news/%s' % feed["handle"]
-
-        items = [pubsub.Item(entry.id, self.writer.generate(entry))
-                 for entry in entries]
-
-        return self.publisher.publish(node, items)
-
     def findFreshEntries(self, f, feed):
         def add(entry, kind):
             log.msg("%s: Found %s entry" % (feed["handle"], kind))
@@ -222,7 +230,7 @@ class AggregatorService(service.Service):
             new_cache[entry.id] = entry
 
         if new_entries:
-            d = self.publishEntries(new_entries, feed)
+            d = self.handler.entriesDiscovered(feed["handle"], new_entries)
         else:
             d = defer.succeed(None)
 
@@ -244,8 +252,8 @@ class AggregatorService(service.Service):
 
     def logNoFeed(self, failure, feed):
         failure.trap(error.Error)
-        error = failure.value
-        log.msg("%s: No feed: %s" % (feed["handle"], error))
+        log.msg("%s: No feed: %s" % feed["handle"])
+        log.err(failure)
 
     def munchError(self, failure, feed):
         log.msg("%s: unhandled error:" % feed["handle"])
@@ -282,3 +290,24 @@ class XMPPControl(extension.ExtensionProtocol):
 
 components.registerAdapter(XMPPControl, IAggregatorService,
                                         extension.IExtensionProtocol)
+
+class AtomPublisher(object):
+    
+    implements(IFeedHandler)
+
+    def __init__(self, protocol):
+        self.protocol = protocol
+        self.writer = writer.AtomWriter()
+
+    def entriesDiscovered(self, handle, entries):
+        log.msg("%s: publishing items" % handle)
+       
+        node = 'mimir/news/%s' % handle
+
+        items = [pubsub.Item(entry.id, self.writer.generate(entry))
+                 for entry in entries]
+
+        return self.protocol.publish(node, items)
+
+components.registerAdapter(AtomPublisher, pubsub.IPubSubClient,
+                                          IFeedHandler)

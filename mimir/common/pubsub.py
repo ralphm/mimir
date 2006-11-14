@@ -1,4 +1,5 @@
-from twisted.words.protocols.jabber import xmlstream
+from zope.interface import Interface, implements
+from twisted.words.protocols.jabber import jid, xmlstream
 from twisted.words.xish import domish
 from mimir.common import extension
 
@@ -72,10 +73,10 @@ class DeleteNode(PubSubRequest):
 class Subscribe(PubSubRequest):
     verb = 'subscribe'
 
-    def __init__(self, xs, node, jid):
+    def __init__(self, xs, node, subscriber):
         PubSubRequest.__init__(self, xs)
         self.command["node"] = node
-        self.command["jid"] = jid.full()
+        self.command["jid"] = subscriber.full()
 
 class Publish(PubSubRequest):
     verb = 'publish'
@@ -95,45 +96,30 @@ class Publish(PubSubRequest):
 
 class SubscriptionPending(Exception):
     """
-    Raised the requested subscription is pending acceptance.
+    Raised when the requested subscription is pending acceptance.
     """
 
 class SubscriptionUnconfigured(Exception):
     """
-    Raised the requested subscription needs to be configured before becoming
-    active.
+    Raised when the requested subscription needs to be configured before
+    becoming active.
     """
 
-class PubSubClient(extension.ExtensionProtocol):
-    """
-    Publish subscribe client protocol.
+class IPubSubClient(Interface):
 
-    @param service: JID of the target publish subscribe service.
-    @type service: L{jid.JID}
-    """
+    def itemsReceived(notifier, node, items):
+        """
+        Called when items have been received from a node.
 
-    def __init__(self, service):
-        self.service=service
+        @param notifier: the entity from which the notification was received.
+        @type notifier: L{jid.JID}
+        @param node: identifier of the node the items belong to.
+        @type node: C{unicode}
+        @param items: list of received items as domish elements.
+        @type items: C{list} of L{domish.Element}
+        """
 
-    def connectionInitialized(self):
-        self.xmlstream.addObserver('/message/event[@xmlns="%s"]/items' %
-                                   NS_PUBSUB_EVENT, self._onItems)
-
-    def _onItems(self, message):
-        try:
-            node = message.event.items["node"]
-        except KeyError:
-            return
-
-        items = [element for element in message.event.items.elements()
-                         if element.name == 'item']
-
-        self.itemsReceived(node, items)
-
-    def itemsReceived(self, node, items):
-        pass
-
-    def createNode(self, node=None):
+    def createNode(node=None):
         """
         Create a new publish subscribe node.
 
@@ -148,6 +134,74 @@ class PubSubClient(extension.ExtensionProtocol):
         @rtype: L{defer.Deferred}
         """
 
+    def deleteNode(node):
+        """
+        Delete a node.
+
+        @param node: identifier of the node to be deleted.
+        @type node: L{unicode}
+        @rtype: L{defer.Deferred}
+        """
+
+    def subscribe(node, subscriber):
+        """
+        Subscribe to a node with a given JID.
+
+        @param node: identifier of the node to subscribe to.
+        @type node: L{unicode}
+        @param subscriber: JID to subscribe to the node.
+        @type subscriber: L{jid.JID}
+        @rtype: L{defer.Deferred}
+        """
+
+    def publish(node, items=[]):
+        """
+        Publish to a node.
+
+        Node that the C{items} parameter is optional, because so-called
+        transient, notification-only nodes do not use items and publish
+        actions only signify a change in some resource.
+
+        @param node: identifier of the node to publish to.
+        @type node: L{unicode}
+        @param items: list of item elements.
+        @type items: L{list} of L{Item}
+        @rtype: L{defer.Deferred}
+        """
+
+class PubSubClient(extension.ExtensionProtocol):
+    """
+    Publish subscribe client protocol.
+
+    @param service: JID of the target publish subscribe service.
+    @type service: L{jid.JID}
+    """
+
+    implements(IPubSubClient)
+
+    def __init__(self, service):
+        self.service = service
+
+    def connectionInitialized(self):
+        self.xmlstream.addObserver('/message/event[@xmlns="%s"]/items' %
+                                   NS_PUBSUB_EVENT, self._onItems)
+
+    def _onItems(self, message):
+        try:
+            notifier = jid.JID(message["from"])
+            node = message.event.items["node"]
+        except KeyError:
+            return
+
+        items = [element for element in message.event.items.elements()
+                         if element.name == 'item']
+
+        self.itemsReceived(notifier, node, items)
+
+    def itemsReceived(self, notifier, node, items):
+        pass
+
+    def createNode(self, node=None):
         request = CreateNode(self.xmlstream, node)
        
         def cb(iq):
@@ -161,28 +215,10 @@ class PubSubClient(extension.ExtensionProtocol):
         return request.send(self.service).addCallback(cb)
 
     def deleteNode(self, node):
-        """
-        Delete a node.
-
-        @param node: identifier of the node to be deleted.
-        @type node: L{unicode}
-        @rtype: L{defer.Deferred}
-        """
-
         return DeleteNode(self.xmlstream, node).send(self.service)
 
-    def subscribe(self, node, jid):
-        """
-        Subscribe to a node with a given JID.
-
-        @param node: identifier of the node to subscribe to.
-        @type node: L{unicode}
-        @param jid: JID to subscribe to the node.
-        @type jid: L{jid.JID}
-        @rtype: L{defer.Deferred}
-        """
-
-        request = Subscribe(self.xmlstream, node, jid)
+    def subscribe(self, node, subscriber):
+        request = Subscribe(self.xmlstream, node, subscriber)
        
         def cb(iq):
             subscription = iq.pubsub.subscription["subscription"]
@@ -200,16 +236,6 @@ class PubSubClient(extension.ExtensionProtocol):
         return request.send(self.service).addCallback(cb)
 
     def publish(self, node, items=[]):
-        """
-        Publish items to a node.
-
-        @param node: identifier of the node to publish to.
-        @type node: L{unicode}
-        @param items: list of item elements.
-        @type items: L{list} of L{Item}
-        @rtype: L{defer.Deferred}
-        """
-
         request = Publish(self.xmlstream, node)
         for item in items:
             request.command.addChild(item)

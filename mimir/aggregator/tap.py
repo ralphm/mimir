@@ -8,7 +8,7 @@ Create a aggregation service.
 from twisted.application import service
 from twisted.python import usage
 
-from mimir.aggregator.aggregator import AggregatorService
+from mimir.aggregator import aggregator
 from mimir.common.fallback import FallbackHandler
 from mimir.common import extension, component, pubsub
 
@@ -36,10 +36,7 @@ class Options(usage.Options):
 def makeService(config):
     s = service.MultiService()
 
-    ag = AggregatorService(config['feeds'])
-    ag.setServiceParent(s)
-    ag.publisher = pubsub.PubSubClient(config['service'])
-
+    # create XMPP external component
     cs = component.Component(config['rhost'], config['rport'],
                              config['jid'], config['secret'])
     cs.setServiceParent(s)
@@ -50,7 +47,19 @@ def makeService(config):
     if config["verbose"]:
         cs.logTraffic = True
     cs.addExtension(FallbackHandler())
-    cs.addExtension(ag.publisher)
+
+    # set up publish-subscribe client handler
+    publisher = pubsub.PubSubClient(config['service'])
+    cs.addExtension(publisher)
+
+    # create aggregation service 
+    ag = aggregator.AggregatorService(config['feeds'])
+    ag.setServiceParent(s)
+
+    # set up feed handler from publisher
+    ag.handler = aggregator.IFeedHandler(publisher)
+
+    # set up XMPP handler to interface with aggregator
     cs.addExtension(extension.IExtensionProtocol(ag))
 
     return s
