@@ -259,7 +259,7 @@ class AggregatorService(service.Service):
         log.msg("%s: unhandled error:" % feed["handle"])
         log.err(failure)
 
-class XMPPControl(extension.ExtensionProtocol):
+class XMPPControl(extension.XMPPHandler):
     def __init__(self, service):
         self.service = service
 
@@ -289,7 +289,7 @@ class XMPPControl(extension.ExtensionProtocol):
         self.send(iq)
 
 components.registerAdapter(XMPPControl, IAggregatorService,
-                                        extension.IExtensionProtocol)
+                                        extension.IXMPPHandler)
 
 class AtomPublisher(object):
     

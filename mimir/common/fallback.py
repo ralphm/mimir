@@ -8,7 +8,7 @@ Unhandled messages fallback handler
 from twisted.words.protocols.jabber import error
 from mimir.common import extension
 
-class FallbackHandler(extension.ExtensionProtocol):
+class FallbackHandler(extension.XMPPHandler):
     """
     Protocol handler that catches unhandled iq requests.
 

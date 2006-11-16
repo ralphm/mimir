@@ -169,7 +169,7 @@ class IPubSubClient(Interface):
         @rtype: L{defer.Deferred}
         """
 
-class PubSubClient(extension.ExtensionProtocol):
+class PubSubClient(extension.XMPPHandler):
     """
     Publish subscribe client protocol.
 

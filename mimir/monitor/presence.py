@@ -4,9 +4,7 @@
 from twisted.words.protocols.jabber import jid
 from twisted.words.xish import domish
 
-from mimir.common import extension
-
-domish.Element.__unicode__ = domish.Element.__str__
+from mimir.common import extension, presence
 
 class Storage(object):
     def __init__(self, dbpool):
@@ -31,6 +29,9 @@ class Storage(object):
             type = 'available'
         else:
             type = 'unavailable'
+
+        show = show or ''
+        status = status or ''
 
         # changed is True when this resource became the top resource, or when
         # it continued to be the top resource and the availability or show
@@ -128,14 +129,14 @@ class Storage(object):
         cursor.execute("DELETE FROM roster WHERE jid=%s", entity.userhost())
         cursor.execute("DELETE FROM presences WHERE jid=%s", entity.userhost())
 
-class Monitor(extension.ExtensionProtocol):
+class Monitor(presence.PresenceHandler):
     def __init__(self, storage):
         self.storage = storage
         self.callbacks = []
 
     def connectionInitialized(self):
-        self.xmlstream.addObserver('/presence', self.on_presence)
-        self.send('<presence/>')
+        presence.PresenceHandler.connectionInitialized(self)
+        self.available()
 
     def register_callback(self, f):
         self.callbacks.append(f)
@@ -152,80 +153,47 @@ class Monitor(extension.ExtensionProtocol):
         d.addCallback(cb, entity)
         d.addErrback(self.error)
 
-    def on_presence(self, presence):
-        type = presence.getAttribute("type", None) or 'available'
-        try:
-            handler = getattr(self, 'on_%s' % (type))
-        except AttributeError:
-            return
+    def availableReceived(self, entity, show, statuses, priority):
+        print "available: %s" % entity
+        if statuses:
+            status = statuses.pop()
         else:
-            handler(presence)
-
-    def on_available(self, presence):
-        entity = jid.JID(presence["from"])
-        print "Got available presence from %s" % (repr(entity.full()))
-
-        status = unicode(presence.status or '')
-        show = unicode(presence.show or '')
-        if show not in ['away', 'xa', 'chat', 'dnd']:
-            show = ''
-
-        try:
-            priority = int(unicode(presence.priority or '')) or 0
-        except ValueError:
-            priority = 0
-
-        print "  priority %d" % priority
-
+            status = None
+        
         self.store_presence(entity, True, show, status, priority)
 
-    def on_unavailable(self, presence):
-        entity = jid.JID(presence["from"])
-        print "Got unavailable presence from %s" % (repr(entity.full()))
-
-        status = unicode(presence.status or '')
-
-        self.store_presence(entity, False, '', status, 0)
+    def unavailableReceived(self, entity, statuses):
+        if statuses:
+            status = statuses.pop()
+        else:
+            status = None
+        
+        self.store_presence(entity, False, None, status, 0)
 
     def error(self, failure):
         print failure
 
 class RosterMonitor(Monitor):
 
-    def connectionAuthenticated(self, xs):
+    def connectionInitialized(self):
         self.send("<iq type='get'><query xmlns='jabber:iq:roster'/></iq>")
-        Monitor.connectionAuthenticated(self, xs)
+        Monitor.connectionInitialized(self)
 
-    def on_subscribe(self, presence):
-        entity = jid.JID(presence["from"])
-        print "Got subscribe presence from %s" % (repr(entity.full()))
-        reply = domish.Element(('jabber:client', 'presence'))
-        reply['to'] = entity.full()
-        reply['type'] = 'subscribed'
-        self.send(reply)
-       
+    def subscribeReceived(self, entity):
+        self.subscribed(entity)
+
         # return the favour
-        reply['type'] = 'subscribe'
-        self.send(reply)
-    
-    def on_subscribed(self, presence):
-        entity = jid.JID(presence["from"])
-        print "Got subscribed presence from %s" % (repr(entity.full()))
+        self.subscribe(entity)
 
-    def on_unsubscribe(self, presence):
-        entity = jid.JID(presence["from"])
-        print "Got unsubscribe presence from %s" % (repr(entity.full()))
-        reply = domish.Element(('jabber:client', 'presence'))
-        reply['to'] = entity.full()
-        reply['type'] = 'unsubscribed'
-        self.send(reply)
-       
+    #def subscribedReceived(self, entity):
+    #    pass
+
+    def unsubscribeReceived(self, entity):
+        self.unsubscribed(entity)
+
         # return the favour
-        reply['type'] = 'unsubscribe'
-        self.send(reply)
+        self.unsubscribe(entity)
 
-    def on_unsubscribed(self, presence):
-        entity = jid.JID(presence["from"])
-        print "Got unsubscribed presence from %s" % (repr(entity.full()))
+    def unsubscribedReceived(self, entity):
         d = self.storage.remove_presences(entity)
         d.addErrback(self.error)

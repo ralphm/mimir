@@ -3,7 +3,7 @@
 
 from zope.interface import Interface, Attribute, implements
 
-class IExtensionProtocol(Interface):
+class IXMPPHandler(Interface):
     """
     XMPP subprotocol interface.
 
@@ -42,8 +42,8 @@ class IExtensionProtocol(Interface):
         until a new connection has been established.
         """
 
-class ExtensionProtocol(object):
-    implements(IExtensionProtocol)
+class XMPPHandler(object):
+    implements(IXMPPHandler)
 
     def connectionMade(self):
         pass

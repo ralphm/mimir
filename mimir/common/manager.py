@@ -11,14 +11,14 @@ class StreamManager(service.Service):
 
     This service maintains a single XMPP connection and provides facilities for
     packet routing and transmission. Business logic modules are objects
-    providing L{IExtensionProtocol} (like subclasses of L{ExtensionProtocol}),
-    and added using L{addExtension}.
+    providing L{IXMPPHandler} (like subclasses of L{XMPPHandler}),
+    and added using L{addHandler}.
 
     @ivar xmlstream: currently managed XML stream
     @type xmlstream: L{xmlstream.XmlStream}
-    @ivar extensions: list of extension protocol handlers
-    @type extensions: L{list} of objects providing
-                      L{extensions.IExtensionProtocol}
+    @ivar handlers: list of protocol handlers
+    @type handlers: L{list} of objects providing
+                      L{extensions.IXMPPHandler}
     @ivar logTraffic: if true, log all traffic.
     @type logTraffic: L{bool}
     @ivar _packetQueue: internal buffer of unsent data. See L{send} for details.
@@ -28,9 +28,10 @@ class StreamManager(service.Service):
     logTraffic = False
 
     def __init__(self, factory):
-        self.extensions = []
+        self.handlers = []
         self.xmlstream = None
         self._packetQueue = []
+        self._initialized = False
         
         factory.addBootstrap(xmlstream.STREAM_CONNECTED_EVENT, self._connected)
         factory.addBootstrap(xmlstream.STREAM_AUTHD_EVENT, self._authd)
@@ -68,6 +69,7 @@ class StreamManager(service.Service):
         for p in self._packetQueue:
             xs.send(p)
         self._packetQueue = []
+        self._initialized = True
 
         # Notify all child services which implement
         # the IService interface
@@ -76,6 +78,7 @@ class StreamManager(service.Service):
 
     def _disconnected(self, _):
         self.xmlstream = None
+        self._initialized = False
 
         # Notify all child services which implement
         # the IService interface
@@ -84,33 +87,33 @@ class StreamManager(service.Service):
             e.connectionLost()
 
     def __iter__(self):
-        return iter(self.extensions)
+        return iter(self.handlers)
 
-    def addExtension(self, extension):
+    def addHandler(self, handler):
         """
-        Add extension handler.
+        Add protocol handler.
 
-        Extension handlers are expected to provide
-        L{extension.IExtensionProtocol}.
+        Protocol handlers are expected to provide L{extension.IXMPPHandler}.
         
         When an XML stream has already been established, the handler's
         C{connectionInitialized} will be called to get it up to speed.
         """
 
-        self.extensions.append(extension)
-        extension.manager = self
+        self.handlers.append(handler)
+        handler.manager = self
 
-        # get extension handler up to speed when a connection has already
+        # get protocol handler up to speed when a connection has already
         # been established
-        if self.xmlstream:
-            extension.connectionInitialized()
+        if self.xmlstream and self._initialized:
+            handler.connectionInitialized()
 
-    def removeExtension(self, extension):
+    def removeHandler(self, handler):
         """
-        Remove extension handler.
+        Remove protocol handler.
         """
 
-        self.extensions.remove(extension)
+        handler.manager = None
+        self.handlers.remove(handler)
 
     def send(self, obj):
         """
@@ -123,7 +126,7 @@ class StreamManager(service.Service):
                     L{xmlstream.XmlStream.send} for details. 
         """
 
-        if self.xmlstream != None:
+        if self._initialized:
             self.xmlstream.send(obj)
         else:
             self._packetQueue.append(obj)

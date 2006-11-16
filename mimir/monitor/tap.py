@@ -10,8 +10,8 @@ from twisted.enterprise import adbapi
 from twisted.python import usage
 from twisted.words.protocols.jabber import jid
 
-from mimir.common.extension import IExtensionProtocol
-from mimir.monitor import client, news, presence
+from mimir.common import client, extension
+from mimir.monitor import news, presence
 
 class Options(usage.Options):
     optParameters = [
@@ -55,13 +55,13 @@ def makeService(config):
 
     ms = presence.Storage(dbpool)
     presenceMonitor = presence.RosterMonitor(ms)
-    clientService.addExtension(presenceMonitor)
+    clientService.addHandler(presenceMonitor)
 
     newsService = news.NewsService(presenceMonitor, dbpool)
     newsService.setServiceParent(s)
 
-    xep = IExtensionProtocol(newsService)
+    xep = extension.IXMPPHandler(newsService)
     newsService.notifier = xep
-    clientService.addExtension(xep)
+    clientService.addHandler(xep)
 
     return s

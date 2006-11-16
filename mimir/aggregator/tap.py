@@ -46,11 +46,11 @@ def makeService(config):
 
     if config["verbose"]:
         cs.logTraffic = True
-    cs.addExtension(FallbackHandler())
+    cs.addHandler(FallbackHandler())
 
     # set up publish-subscribe client handler
     publisher = pubsub.PubSubClient(config['service'])
-    cs.addExtension(publisher)
+    cs.addHandler(publisher)
 
     # create aggregation service 
     ag = aggregator.AggregatorService(config['feeds'])
@@ -60,6 +60,6 @@ def makeService(config):
     ag.handler = aggregator.IFeedHandler(publisher)
 
     # set up XMPP handler to interface with aggregator
-    cs.addExtension(extension.IExtensionProtocol(ag))
+    cs.addHandler(extension.IXMPPHandler(ag))
 
     return s

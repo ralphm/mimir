@@ -308,4 +308,4 @@ class XMPPHandlerFromService(pubsub.PubSubClient):
 
 components.registerAdapter(XMPPHandlerFromService,
                            INewsService,
-                           extension.IExtensionProtocol)
+                           extension.IXMPPHandler)
