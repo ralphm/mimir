@@ -1,7 +1,6 @@
 from zope.interface import Interface, implements
 from twisted.words.protocols.jabber import jid, xmlstream
 from twisted.words.xish import domish
-from mimir.common import extension
 
 NS_PUBSUB = 'http://jabber.org/protocol/pubsub'
 NS_PUBSUB_OWNER = 'http://jabber.org/protocol/pubsub#owner'
@@ -169,7 +168,7 @@ class IPubSubClient(Interface):
         @rtype: L{defer.Deferred}
         """
 
-class PubSubClient(extension.XMPPHandler):
+class PubSubClient(xmlstream.XMPPHandler):
     """
     Publish subscribe client protocol.
 

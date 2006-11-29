@@ -11,8 +11,9 @@ from twisted.application import service
 from twisted.internet import reactor
 from twisted.python import components, failure
 from twisted.words.xish import domish
+from twisted.words.protocols.jabber import ijabber
 
-from mimir.common import extension, pubsub
+from mimir.common import pubsub
 
 SGMLTAG = re.compile('<.+?>', re.DOTALL)
 NS_ATOM = 'http://www.w3.org/2005/Atom'
@@ -220,7 +221,7 @@ class NewsService(service.Service):
         title, link, description, date = self._extractBasics(entry)
         json = simplejson.dumps(entry, cls=FeedParserEncoder)
 
-        print "Storing item: %s" % repr(entry)
+        print "Storing item: %r" % entry.id 
 
         cursor.execute("""UPDATE news
                           SET title=%s, description=%s, date=%s, parsed=%s
@@ -308,4 +309,4 @@ class XMPPHandlerFromService(pubsub.PubSubClient):
 
 components.registerAdapter(XMPPHandlerFromService,
                            INewsService,
-                           extension.IXMPPHandler)
+                           ijabber.IXMPPHandler)

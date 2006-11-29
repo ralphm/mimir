@@ -1,10 +1,7 @@
 # Copyright (c) 2005-2006 Ralph Meijer
 # See LICENSE for details
 
-from twisted.words.protocols.jabber import jid
-from twisted.words.xish import domish
-
-from mimir.common import extension, presence
+from mimir.common import presence
 
 class Storage(object):
     def __init__(self, dbpool):

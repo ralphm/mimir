@@ -4,8 +4,8 @@ XMPP External Component utilities
 
 from twisted.internet import reactor
 from twisted.words.protocols.jabber import component
+from twisted.words.protocols.jabber.xmlstream import StreamManager
 from twisted.words.xish import domish
-from mimir.common.manager import StreamManager
 
 class Component(StreamManager):
     def __init__(self, host, port, jid, password):
@@ -27,6 +27,16 @@ class Component(StreamManager):
 
         xs.send = send
         StreamManager._authd(self, xs)
+
+    def initializationFailed(self, reason):
+        """
+        Called when stream initialization has failed.
+        
+        Stop the service (thereby disconnecting the current stream) and
+        raise the exception.
+        """
+        self.stopService()
+        reason.raiseException()
 
     def startService(self):
         StreamManager.startService(self)

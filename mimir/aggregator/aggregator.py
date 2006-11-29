@@ -14,11 +14,12 @@ from zope.interface import Interface, implements
 from twisted.application import service
 from twisted.internet import reactor, defer
 from twisted.python import components, log
+from twisted.words.protocols.jabber import ijabber, xmlstream
 from twisted.words.protocols.jabber.error import StanzaError
 from twisted.web import error
 
 from mimir.aggregator import fetcher, writer
-from mimir.common import extension, pubsub
+from mimir.common import pubsub
 
 __version__ = "0.3.0"
 
@@ -259,7 +260,7 @@ class AggregatorService(service.Service):
         log.msg("%s: unhandled error:" % feed["handle"])
         log.err(failure)
 
-class XMPPControl(extension.XMPPHandler):
+class XMPPControl(xmlstream.XMPPHandler):
     def __init__(self, service):
         self.service = service
 
@@ -289,7 +290,7 @@ class XMPPControl(extension.XMPPHandler):
         self.send(iq)
 
 components.registerAdapter(XMPPControl, IAggregatorService,
-                                        extension.IXMPPHandler)
+                                        ijabber.IXMPPHandler)
 
 class AtomPublisher(object):
     

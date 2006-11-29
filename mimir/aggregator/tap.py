@@ -7,10 +7,11 @@ Create a aggregation service.
 
 from twisted.application import service
 from twisted.python import usage
+from twisted.words.protocols.jabber import ijabber
 
 from mimir.aggregator import aggregator
 from mimir.common.fallback import FallbackHandler
-from mimir.common import extension, component, pubsub
+from mimir.common import component, pubsub
 
 class Options(usage.Options):
     optParameters = [
@@ -60,6 +61,6 @@ def makeService(config):
     ag.handler = aggregator.IFeedHandler(publisher)
 
     # set up XMPP handler to interface with aggregator
-    cs.addHandler(extension.IXMPPHandler(ag))
+    cs.addHandler(ijabber.IXMPPHandler(ag))
 
     return s

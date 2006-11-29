@@ -1,7 +1,5 @@
-from twisted.words.protocols.jabber import jid
+from twisted.words.protocols.jabber import jid, xmlstream
 from twisted.words.xish import domish
-
-from mimir.common import extension
 
 NS_XML = 'http://www.w3.org/XML/1998/namespace'
 
@@ -40,7 +38,7 @@ class UnavailablePresence(Presence):
                 if lang:
                     s[(NS_XML, "lang")] = lang
 
-class PresenceHandler(extension.XMPPHandler):
+class PresenceHandler(xmlstream.XMPPHandler):
 
     def connectionInitialized(self):
         self.xmlstream.addObserver('/presence', self._onPresence)

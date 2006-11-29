@@ -4,8 +4,7 @@
 from twisted.internet import reactor
 from twisted.names.srvconnect import SRVConnector
 from twisted.words.protocols.jabber import client
-
-from mimir.common.manager import StreamManager
+from twisted.words.protocols.jabber.xmlstream import StreamManager
 
 class XMPPClientConnector(SRVConnector):
     def __init__(self, reactor, domain, factory):
@@ -41,6 +40,16 @@ class Client(StreamManager):
         StreamManager.stopService(self)
 
         self._connection.disconnect()
+
+    def initializationFailed(self, reason):
+        """
+        Called when stream initialization has failed.
+        
+        Stop the service (thereby disconnecting the current stream) and
+        raise the exception.
+        """
+        self.stopService()
+        reason.raiseException()
 
     def _getConnection(self):
         c = XMPPClientConnector(reactor, self.domain, self.factory)

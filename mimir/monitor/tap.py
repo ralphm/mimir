@@ -8,9 +8,9 @@ Create a monitor service.
 from twisted.application import service
 from twisted.enterprise import adbapi
 from twisted.python import usage
-from twisted.words.protocols.jabber import jid
+from twisted.words.protocols.jabber import ijabber, jid
 
-from mimir.common import client, extension
+from mimir.common import client
 from mimir.monitor import news, presence
 
 class Options(usage.Options):
@@ -60,7 +60,7 @@ def makeService(config):
     newsService = news.NewsService(presenceMonitor, dbpool)
     newsService.setServiceParent(s)
 
-    xep = extension.IXMPPHandler(newsService)
+    xep = ijabber.IXMPPHandler(newsService)
     newsService.notifier = xep
     clientService.addHandler(xep)
 
