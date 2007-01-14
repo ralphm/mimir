@@ -2,12 +2,13 @@
 XMPP External Component utilities
 """
 
+from twisted.application import service
 from twisted.internet import reactor
 from twisted.words.protocols.jabber import component
 from twisted.words.protocols.jabber.xmlstream import StreamManager
 from twisted.words.xish import domish
 
-class Component(StreamManager):
+class Component(StreamManager, service.Service):
     def __init__(self, host, port, jid, password):
         self.host = host
         self.port = port
@@ -39,12 +40,13 @@ class Component(StreamManager):
         reason.raiseException()
 
     def startService(self):
-        StreamManager.startService(self)
+        service.Service.startService(self)
 
+        self.factory.stopTrying()
         self._connection = self._getConnection()
 
     def stopService(self):
-        StreamManager.stopService(self)
+        service.Service.stopService(self)
 
         self._connection.disconnect()
 

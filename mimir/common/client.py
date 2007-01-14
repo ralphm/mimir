@@ -1,6 +1,7 @@
 # Copyright (c) 2005-2006 Ralph Meijer
 # See LICENSE for details
 
+from twisted.application import service
 from twisted.internet import reactor
 from twisted.names.srvconnect import SRVConnector
 from twisted.words.protocols.jabber import client
@@ -19,7 +20,7 @@ class XMPPClientConnector(SRVConnector):
 
         return host, port
 
-class Client(StreamManager):
+class Client(StreamManager, service.Service):
 
     def __init__(self, jid, password):
         self.domain = jid.host
@@ -32,12 +33,13 @@ class Client(StreamManager):
         StreamManager.__init__(self, factory)
 
     def startService(self):
-        StreamManager.startService(self)
+        service.Service.startService(self)
 
+        self.factory.stopTrying()
         self._connection = self._getConnection()
 
     def stopService(self):
-        StreamManager.stopService(self)
+        service.Service.stopService(self)
 
         self._connection.disconnect()
 
