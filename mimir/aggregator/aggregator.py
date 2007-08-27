@@ -1,4 +1,4 @@
-# Copyright (c) 2005-2006 Ralph Meijer
+# Copyright (c) 2005-2007 Ralph Meijer
 # See LICENSE for details
 
 """
@@ -14,12 +14,15 @@ from zope.interface import Interface, implements
 from twisted.application import service
 from twisted.internet import reactor, defer
 from twisted.python import components, log
-from twisted.words.protocols.jabber import ijabber, xmlstream
 from twisted.words.protocols.jabber.error import StanzaError
 from twisted.web import error
 
+from wokkel import pubsub
+from wokkel.iwokkel import IXMPPHandler
+from wokkel.subprotocols import XMPPHandler
+
+
 from mimir.aggregator import fetcher, writer
-from mimir.common import pubsub
 
 __version__ = "0.3.0"
 
@@ -56,7 +59,7 @@ class IAggregatorService(Interface):
         @param url: feed URL.
         @type url: L{str}
         """
-    
+
 class AggregatorService(service.Service):
     """
     Feed aggregator service.
@@ -129,7 +132,7 @@ class AggregatorService(service.Service):
                 headers['if-none-match'] = etag
             if last_modified:
                 headers['if-modified-since'] = last_modified
-            
+
             self.schedule[feed['handle']] = self._callLater(delay,
                                                             self.aggregate,
                                                             feed, headers)
@@ -185,7 +188,7 @@ class AggregatorService(service.Service):
                     (feed['handle'], result.url))
             feed['url'] = result.url
             self.writeFeeds()
-        
+
         if result.feed:
             log.msg("%s: Got feed." % feed["handle"])
             if result.feed.get('title', None):
@@ -260,7 +263,8 @@ class AggregatorService(service.Service):
         log.msg("%s: unhandled error:" % feed["handle"])
         log.err(failure)
 
-class XMPPControl(xmlstream.XMPPHandler):
+class XMPPControl(XMPPHandler):
+
     def __init__(self, service):
         self.service = service
 
@@ -286,29 +290,30 @@ class XMPPControl(xmlstream.XMPPHandler):
                 iq.children = []
         else:
             iq = StanzaError('bad-request').toResponse(iq)
-    
+
         self.send(iq)
 
 components.registerAdapter(XMPPControl, IAggregatorService,
-                                        ijabber.IXMPPHandler)
+                                        IXMPPHandler)
 
 class AtomPublisher(object):
-    
+
     implements(IFeedHandler)
 
     def __init__(self, protocol):
         self.protocol = protocol
+        self.service = None
         self.writer = writer.AtomWriter()
 
     def entriesDiscovered(self, handle, entries):
         log.msg("%s: publishing items" % handle)
-       
+
         node = 'mimir/news/%s' % handle
 
         items = [pubsub.Item(entry.id, self.writer.generate(entry))
                  for entry in entries]
 
-        return self.protocol.publish(node, items)
+        return self.protocol.publish(self.service, node, items)
 
 components.registerAdapter(AtomPublisher, pubsub.IPubSubClient,
                                           IFeedHandler)

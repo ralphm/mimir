@@ -1,11 +1,11 @@
-# Copyright (c) 2005-2006 Ralph Meijer
+# Copyright (c) 2005-2007 Ralph Meijer
 # See LICENSE for details
 
-from mimir.common import presence
+from wokkel.xmppim import PresenceClientProtocol
 
 class Storage(object):
     def __init__(self, dbpool):
-        self._dbpool = dbpool 
+        self._dbpool = dbpool
         d = self._dbpool.runOperation("""UPDATE presences
                                          SET type='unavailable', show='',
                                              status='', priority=0
@@ -41,7 +41,7 @@ class Storage(object):
                        (entity.userhost(), entity.resource))
         result = cursor.fetchone()
         print "result: %s" % repr(result)
-      
+
         if result:
             id, old_type, old_show = result
 
@@ -49,7 +49,7 @@ class Storage(object):
                 # delete old record, the new record will be inserted below
                 cursor.execute("DELETE FROM presences WHERE presence_id=%s",
                                id)
-        
+
         if result and old_type == 'available':
             if show != old_show:
                 print "  show != old_show"
@@ -126,13 +126,13 @@ class Storage(object):
         cursor.execute("DELETE FROM roster WHERE jid=%s", entity.userhost())
         cursor.execute("DELETE FROM presences WHERE jid=%s", entity.userhost())
 
-class Monitor(presence.PresenceHandler):
+class Monitor(PresenceClientProtocol):
     def __init__(self, storage):
         self.storage = storage
         self.callbacks = []
 
     def connectionInitialized(self):
-        presence.PresenceHandler.connectionInitialized(self)
+        PresenceClientProtocol.connectionInitialized(self)
         self.available()
 
     def register_callback(self, f):
@@ -156,7 +156,7 @@ class Monitor(presence.PresenceHandler):
             status = statuses.pop()
         else:
             status = None
-        
+
         self.store_presence(entity, True, show, status, priority)
 
     def unavailableReceived(self, entity, statuses):
@@ -164,7 +164,7 @@ class Monitor(presence.PresenceHandler):
             status = statuses.pop()
         else:
             status = None
-        
+
         self.store_presence(entity, False, None, status, 0)
 
     def error(self, failure):

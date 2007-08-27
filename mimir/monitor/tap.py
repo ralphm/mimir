@@ -8,9 +8,11 @@ Create a monitor service.
 from twisted.application import service
 from twisted.enterprise import adbapi
 from twisted.python import usage
-from twisted.words.protocols.jabber import ijabber, jid
+from twisted.words.protocols.jabber import jid
 
-from mimir.common import client
+from wokkel import client
+from wokkel.iwokkel import IXMPPHandler
+
 from mimir.monitor import news, presence
 
 class Options(usage.Options):
@@ -33,11 +35,11 @@ class Options(usage.Options):
 
         if not self['secret']:
             raise usage.UsageError("No secret provided")
-    
+
 def makeService(config):
     s = service.MultiService()
 
-    clientService = client.Client(config['jid'], config['secret'])
+    clientService = client.XMPPClient(config['jid'], config['secret'])
     clientService.setServiceParent(s)
 
     clientService.factory.maxDelay = 900
@@ -55,13 +57,13 @@ def makeService(config):
 
     ms = presence.Storage(dbpool)
     presenceMonitor = presence.RosterMonitor(ms)
-    clientService.addHandler(presenceMonitor)
+    presenceMonitor.setHandlerParent(clientService)
 
     newsService = news.NewsService(presenceMonitor, dbpool)
     newsService.setServiceParent(s)
 
-    xep = ijabber.IXMPPHandler(newsService)
+    xep = IXMPPHandler(newsService)
     newsService.notifier = xep
-    clientService.addHandler(xep)
+    xep.setHandlerParent(clientService)
 
     return s

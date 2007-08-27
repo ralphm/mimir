@@ -23,7 +23,7 @@ class DummyAggregator(object):
 class XMPPControlTest(unittest.TestCase):
     def testOnFeed(self):
         xc = aggregator.XMPPControl(DummyAggregator())
-        xc.manager = DummyManager()
+        xc.parent = DummyManager()
 
         iq = xmlstream.IQ(None)
         iq['to'] = 'user1@example.org'
@@ -33,5 +33,5 @@ class XMPPControlTest(unittest.TestCase):
         feed.addElement('handle', content='test')
         feed.addElement('url', content='http://www.example.org/')
         xc.onFeed(iq)
-        self.assertEquals(xc.manager.outlist[0]['type'], 'result')
+        self.assertEquals(xc.parent.outlist[0]['type'], 'result')
         self.assertEquals(xc.service.feeds['test'], 'http://www.example.org/')

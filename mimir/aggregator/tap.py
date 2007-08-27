@@ -1,4 +1,4 @@
-# Copyright (c) 2005-2006 Ralph Meijer
+# Copyright (c) 2005-2007 Ralph Meijer
 # See LICENSE for details
 
 """
@@ -7,11 +7,12 @@ Create a aggregation service.
 
 from twisted.application import service
 from twisted.python import usage
-from twisted.words.protocols.jabber import ijabber
+
+from wokkel import component, pubsub
+from wokkel.generic import FallbackHandler
+from wokkel.iwokkel import IXMPPHandler
 
 from mimir.aggregator import aggregator
-from mimir.common.fallback import FallbackHandler
-from mimir.common import component, pubsub
 
 class Options(usage.Options):
     optParameters = [
@@ -47,11 +48,12 @@ def makeService(config):
 
     if config["verbose"]:
         cs.logTraffic = True
-    cs.addHandler(FallbackHandler())
+
+    FallbackHandler().setHandlerParent(cs)
 
     # set up publish-subscribe client handler
-    publisher = pubsub.PubSubClient(config['service'])
-    cs.addHandler(publisher)
+    publisher = pubsub.PubSubClient()
+    publisher.setHandlerParent(cs)
 
     # create aggregation service 
     ag = aggregator.AggregatorService(config['feeds'])
@@ -59,8 +61,9 @@ def makeService(config):
 
     # set up feed handler from publisher
     ag.handler = aggregator.IFeedHandler(publisher)
+    ag.handler.service = config['service']
 
     # set up XMPP handler to interface with aggregator
-    cs.addHandler(ijabber.IXMPPHandler(ag))
+    IXMPPHandler(ag).setHandlerParent(cs)
 
     return s

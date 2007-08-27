@@ -15,7 +15,6 @@ setup(name='mimir',
       packages=[
           'mimir',
           'mimir.aggregator',
-          'mimir.common',
           'mimir.monitor',
           'twisted.plugins',
       ],

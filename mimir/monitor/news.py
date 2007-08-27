@@ -1,4 +1,4 @@
-# Copyright (c) 2005-2006 Ralph Meijer
+# Copyright (c) 2005-2007 Ralph Meijer
 # See LICENSE for details
 
 import re, time
@@ -11,9 +11,9 @@ from twisted.application import service
 from twisted.internet import reactor
 from twisted.python import components, failure
 from twisted.words.xish import domish
-from twisted.words.protocols.jabber import ijabber
 
-from mimir.common import pubsub
+from wokkel import pubsub
+from wokkel.iwokkel import IXMPPHandler
 
 SGMLTAG = re.compile('<.+?>', re.DOTALL)
 NS_ATOM = 'http://www.w3.org/2005/Atom'
@@ -272,7 +272,7 @@ class XMPPHandlerFromService(pubsub.PubSubClient):
 
     def sendNotification(self, jid, descriptionInNotify, messageType,
                          title, link, description):
-        
+
         message = domish.Element((None, 'message'))
         message['to'] = jid
         message['type'] = messageType
@@ -309,4 +309,4 @@ class XMPPHandlerFromService(pubsub.PubSubClient):
 
 components.registerAdapter(XMPPHandlerFromService,
                            INewsService,
-                           ijabber.IXMPPHandler)
+                           IXMPPHandler)
