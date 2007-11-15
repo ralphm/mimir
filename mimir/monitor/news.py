@@ -270,6 +270,9 @@ class NewsService(service.Service):
 
 class XMPPHandlerFromService(pubsub.PubSubClient):
 
+    def __init__(self, service):
+        self.service = service
+
     def sendNotification(self, jid, descriptionInNotify, messageType,
                          title, link, description):
 
@@ -294,8 +297,8 @@ class XMPPHandlerFromService(pubsub.PubSubClient):
         print "Sending: %s" % repr(message.toXml())
         self.send(message)
 
-    def itemsReceived(self, notifier, node, items):
-        m = re.match(r"^mimir/news/(.+)$", node)
+    def itemsreceived(self, recipient, service, nodeIdentifier, items):
+        m = re.match(r"^mimir/news/(.+)$", nodeIdentifier)
 
         if not m:
             return
