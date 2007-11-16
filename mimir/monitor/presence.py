@@ -40,7 +40,7 @@ class Storage(object):
                           WHERE jid=%s AND resource=%s""",
                        (entity.userhost(), entity.resource))
         result = cursor.fetchone()
-        print "result: %s" % repr(result)
+        print "result: %r" % result
 
         if result:
             id, old_type, old_show = result
@@ -76,7 +76,7 @@ class Storage(object):
                                                                 entity)
 
     def _update_roster(self, cursor, changed, entity):
-        print "Updating roster for %s" % repr(entity.full())
+        print "Updating roster for %r" % entity.full()
 
         # Find new top resource's presence id
         cursor.execute("""SELECT presence_id, resource FROM presences
@@ -93,7 +93,7 @@ class Storage(object):
         cursor.execute("SELECT presence_id FROM roster WHERE jid=%s",
                                        entity.userhost())
         result = cursor.fetchone()
-        print "result 2: %s" % repr(result)
+        print "result 2: %r" % result
 
         if result:
             old_top_id = result[0]
@@ -142,7 +142,7 @@ class Monitor(PresenceClientProtocol):
         d = self.storage.set_presence(entity, available, show, status, priority)
         d.addCallback(self.storage.update_roster, entity)
         def cb(changed, entity):
-            print "Changed %s: %s" % (repr(entity.full()), changed)
+            print "Changed %r: %s" % (entity.full(), changed)
             if changed:
                 for f in self.callbacks:
                     f(entity, available, show)
@@ -151,20 +151,22 @@ class Monitor(PresenceClientProtocol):
         d.addErrback(self.error)
 
     def availableReceived(self, entity, show, statuses, priority):
-        print "available: %s" % entity
+        print "available: %r" % entity.full()
         if statuses:
-            status = statuses.pop()
+            status = statuses.popitem()[1]
         else:
             status = None
 
+        print "  status: %r" % status
         self.store_presence(entity, True, show, status, priority)
 
     def unavailableReceived(self, entity, statuses):
         if statuses:
-            status = statuses.pop()
+            status = statuses.popitem()[1]
         else:
             status = None
 
+        print "  status: %r" % status
         self.store_presence(entity, False, None, status, 0)
 
     def error(self, failure):

@@ -57,7 +57,7 @@ class NewsService(service.Service):
         else:
             show = 'offline'
 
-        print "  presence change to %s for %s", (show, repr(entity.full()))
+        print "  presence change to %s for %r", (show, entity.full())
         reactor.callLater(5, self.pageNotify, entity, show)
 
     def pageNotify(self, entity, show):
@@ -124,7 +124,7 @@ class NewsService(service.Service):
                        channel)
         title = cursor.fetchone()[0]
 
-        print "Channel title: %s" % repr(title)
+        print "Channel title: %r" % title
 
         feedDocument = domish.Element((NS_ATOM, 'feed'))
         for item in items:
@@ -221,7 +221,7 @@ class NewsService(service.Service):
         title, link, description, date = self._extractBasics(entry)
         json = simplejson.dumps(entry, cls=FeedParserEncoder)
 
-        print "Storing item: %r" % entry.id 
+        print "Storing item: %r" % entry.id
 
         cursor.execute("""UPDATE news
                           SET title=%s, description=%s, date=%s, parsed=%s
@@ -294,10 +294,10 @@ class XMPPHandlerFromService(pubsub.PubSubClient):
             oob.addElement('url', None, link)
             oob.addElement('desc', None, title)
 
-        print "Sending: %s" % repr(message.toXml())
+        print "Sending: %r" % message.toXml()
         self.send(message)
 
-    def itemsreceived(self, recipient, service, nodeIdentifier, items):
+    def itemsReceived(self, recipient, service, nodeIdentifier, items):
         m = re.match(r"^mimir/news/(.+)$", nodeIdentifier)
 
         if not m:
