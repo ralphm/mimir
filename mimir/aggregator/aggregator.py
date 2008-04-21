@@ -38,7 +38,7 @@ __version__ = "0.3.0"
 INTERVAL = 1800
 NS_AGGREGATOR = 'http://mimir.ik.nu/protocol/aggregator'
 
-RE_HANDLE = re.compile('^\w+$')
+RE_HANDLE = re.compile('^[-a-z0-9_]+$')
 
 class InvalidHandleError(Exception):
     """
@@ -445,10 +445,15 @@ class AddFeedResource(resource.Resource):
         def gotRequest(result):
             url = result['url']
             handle = result['handle']
-            return self.service.setFeed(handle, url)
+            d = self.service.setFeed(handle, url)
+            d.addCallback(lambda _: self.service.handler.checkNode(handle))
+            return d
 
         def createResponse(result):
-            return http.Response(responsecode.OK)
+            response = {'uri': 'xmpp:%s?;node=%s' % (
+                self.service.handler.service.full(),
+                result)}
+            return http.Response(responsecode.OK, stream=simplejson.dumps(response))
 
         def trapInvalidHandle(failure):
             failure.trap(InvalidHandleError)
@@ -457,12 +462,13 @@ class AddFeedResource(resource.Resource):
 
         data = []
         d = readStream(request.stream, data.append)
-        d.addCallback(lambda _: data)
+        d.addCallback(lambda _: ''.join(data))
         d.addCallback(simplejson.loads)
         d.addCallback(gotRequest)
         d.addCallback(createResponse)
         d.addErrback(trapInvalidHandle)
         return d
+
 
 
 class AtomPublisher(object):
@@ -474,10 +480,15 @@ class AtomPublisher(object):
         self.service = None
         self.writer = writer.ReconstituteWriter()
 
+
+    def _getNode(self, handle):
+        return 'mimir/news/%s' % handle
+
+
     def entriesDiscovered(self, handle, feed, entries):
         log.msg("%s: publishing items" % handle)
 
-        node = 'mimir/news/%s' % handle
+        node = self._getNode(handle)
 
         items = []
         for entry in entries:
@@ -493,6 +504,20 @@ class AtomPublisher(object):
             return self.protocol.publish(self.service, node, items)
         else:
             return defer.succeed(None)
+
+    def checkNode(self, handle):
+        def trapConflict(failure, node):
+            failure.trap(StanzaError)
+            exc = failure.value
+            if exc.condtion != 'conflict':
+                return failure
+            else:
+                return node
+
+        node = self._getNode(handle)
+        d = self.protocol.createNode(self.service, node)
+        d.addErrback(trapConflict, node)
+        return d
 
 components.registerAdapter(AtomPublisher, pubsub.IPubSubClient,
                                           IFeedHandler)
