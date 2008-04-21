@@ -7,6 +7,7 @@ Create a aggregation service.
 
 from twisted.application import service
 from twisted.python import usage
+from twisted.words.protocols.jabber.jid import JID
 
 from wokkel import component, pubsub
 from wokkel.generic import FallbackHandler
@@ -16,12 +17,13 @@ from mimir.aggregator import aggregator
 
 class Options(usage.Options):
     optParameters = [
-        ('feeds', None, 'feeds', 'File that holds the list of feeds'),
+        ('feeds', None, 'feeds', 'Directory that holds the list of feeds'),
         ('jid', None, 'aggregator', 'JID of this component'),
         ('secret', None, 'secret', 'Secret to connect to upstream server'),
         ('rhost', None, '127.0.0.1', 'Upstream server address'),
         ('rport', None, '5347', 'Upstream server port'),
         ('service', None, None, 'Publish subscribe service JID'),
+        ('web-port', None, None, 'Port to listen for HTTP interface service'),
     ]
 
     optFlags = [
@@ -34,7 +36,7 @@ class Options(usage.Options):
         except ValueError:
             pass
 
-    
+
 def makeService(config):
     s = service.MultiService()
 
@@ -56,14 +58,26 @@ def makeService(config):
     publisher.setHandlerParent(cs)
 
     # create aggregation service 
-    ag = aggregator.AggregatorService(config['feeds'])
+    storage = aggregator.FileFeedStorage(config['feeds'])
+    ag = aggregator.AggregatorService(storage)
     ag.setServiceParent(s)
 
     # set up feed handler from publisher
     ag.handler = aggregator.IFeedHandler(publisher)
-    ag.handler.service = config['service']
+    ag.handler.service = JID(config['service'])
 
     # set up XMPP handler to interface with aggregator
     IXMPPHandler(ag).setHandlerParent(cs)
+
+    # set up site to interface with aggregator
+
+    from twisted.application import internet
+    from twisted.web2 import channel, resource, server
+
+    root = resource.Resource()
+    root.child_setfeed = aggregator.AddFeedResource(ag)
+    site = server.Site(root)
+    w = internet.TCPServer(int(config['web-port']), channel.HTTPFactory(site))
+    w.setServiceParent(s)
 
     return s

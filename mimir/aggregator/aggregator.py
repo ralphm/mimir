@@ -9,13 +9,21 @@ and continuously aggregates a collection of Atom and RSS feeds, parses them and
 republishes them via Jabber publish-subscribe.
 """
 
+import re
+import simplejson
+
 from zope.interface import Interface, implements
 
 from twisted.application import service
 from twisted.internet import reactor, defer
 from twisted.python import components, log
+from twisted.python.filepath import FilePath
+from twisted.words.protocols.jabber import xmlstream
 from twisted.words.protocols.jabber.error import StanzaError
+from twisted.words.xish import domish
 from twisted.web import error
+from twisted.web2 import http, resource, responsecode
+from twisted.web2.stream import readStream
 
 from wokkel import pubsub
 from wokkel.iwokkel import IXMPPHandler
@@ -23,28 +31,40 @@ from wokkel.subprotocols import XMPPHandler
 
 
 from mimir.aggregator import fetcher, writer
+from mimir.monitor.news import FeedParserEncoder
 
 __version__ = "0.3.0"
 
 INTERVAL = 1800
 NS_AGGREGATOR = 'http://mimir.ik.nu/protocol/aggregator'
 
+RE_HANDLE = re.compile('^\w+$')
+
+class InvalidHandleError(Exception):
+    """
+    Handle contains invalid characters.
+    """
+
+
 class IFeedHandler(Interface):
     """
     Handle aggregated feeds.
     """
 
-    def entriesDiscovered(self, handle, entries):
+    def entriesDiscovered(self, handle, feed, entries):
         """
         Called when new or updated entries have been discovered.
 
-        @param handle: handle for the feed the entries belong to.
+        @param handle: Handle for the feed the entries belong to.
         @type handle: C{unicode}
-        @param entries: dictionary with entry details conforming to the
+        @param feed: Output from the Universal Feed Parser.
+        @type feed: L{feedparser.FeedParserDict}
+        @param entries: List with entry details conforming to the
                         output of the Universal Feed Parser.
-        @type entries: C{dict}
+        @type entries: C{list}
         @rtype: L{defer.Deferred}
         """
+
 
 class IAggregatorService(Interface):
 
@@ -60,6 +80,113 @@ class IAggregatorService(Interface):
         @type url: L{str}
         """
 
+
+class FileFeedStorage(object):
+    def __init__(self, feedsDir):
+        self.feedsDir = FilePath(feedsDir)
+        self.feedListFile = self.feedsDir.child('feeds')
+        self.feeds = None
+
+    def _readFeedList(self):
+        """
+        Initialize list of feeds
+        """
+
+        fh = self.feedListFile.open()
+        try:
+            feedList = [line.split() for line in fh.readlines()]
+        finally:
+            fh.close()
+
+        self.feeds = {}
+        for handle, url in feedList:
+            self.feeds[handle] = {'handle': handle,
+                                  'href': url}
+
+    def _writeFeedList(self):
+        """
+        Write out list of feeds
+        """
+
+        feedList = ["%s %s\n" % (f['handle'], f['href'])
+                     for f in self.feeds.itervalues()]
+        feedList.sort()
+
+        fh = self.feedListFile.open('w')
+        try:
+            fh.writelines(feedList)
+        finally:
+            fh.close()
+
+    def getFeedList(self):
+        """
+        Get the list of feeds.
+        """
+        if self.feeds is None:
+            try:
+                self._readFeedList()
+            except:
+                return defer.fail()
+
+        return defer.succeed(self.feeds)
+
+    def setFeedURL(self, handle, url):
+        """
+        Add or update the feed.
+        """
+        feed = {'handle': handle,
+                 'href': url}
+
+        self.feeds[handle] = feed
+
+        try:
+            self.storeFeed(feed)
+            self._writeFeedList()
+        except:
+            return defer.fail()
+
+        return defer.succeed(feed)
+
+    def getFeed(self, handle):
+        """
+        Retrieve the feed as it was last aggregated.
+        """
+
+        try:
+            feedFile = self.feedsDir.child("%s.feed.json" % handle)
+
+            if not feedFile.exists():
+                feed = self.feeds[handle]
+            else:
+                fh = feedFile.open()
+                try:
+                    feed = simplejson.load(fh)
+                finally:
+                    fh.close()
+        except:
+            return defer.fail()
+
+        return defer.succeed(feed)
+
+    def storeFeed(self, feed):
+        """
+        Write out a feed as a JSON file.
+        """
+
+        try:
+            feedFile = self.feedsDir.child("%s.feed.json" % feed['handle'])
+            if feedFile.exists():
+                feedFile.moveTo(FilePath(feedFile.path + '.1'))
+            fh = feedFile.open("w")
+            try:
+                simplejson.dump(feed, fh, indent=4, cls=FeedParserEncoder)
+            finally:
+                fh.close()
+        except:
+            return defer.fail()
+        else:
+            return defer.succeed(None)
+
 class AggregatorService(service.Service):
     """
     Feed aggregator service.
@@ -74,9 +201,9 @@ class AggregatorService(service.Service):
 
     agent = "MimirAggregator/%s (http://mimir.ik.nu/)" % __version__
 
-    def __init__(self, feedListFile):
-        self.feedListFile = feedListFile
+    def __init__(self, storage):
         self.handler = None
+        self.storage = storage
 
     def _callLater(self, *args, **kwargs):
         """
@@ -84,33 +211,6 @@ class AggregatorService(service.Service):
         """
 
         return reactor.callLater(*args, **kwargs)
-
-    def readFeeds(self):
-        """
-        Initialize list of feeds
-        """
-
-        f = file(self.feedListFile)
-        feedList = [line.split() for line in f.readlines()]
-        f.close()
-
-        self.feeds = {}
-        for handle, url in feedList:
-            self.feeds[handle] = {'handle': handle,
-                                  'url': url}
-
-    def writeFeeds(self):
-        """
-        Write out list of feeds
-        """
-
-        feedList = ["%s %s\n" % (f['handle'], f['url'])
-                     for f in self.feeds.itervalues()]
-        feedList.sort()
-
-        f = file(self.feedListFile, 'w')
-        f.writelines(feedList)
-        f.close()
 
     def startService(self):
         """
@@ -120,23 +220,16 @@ class AggregatorService(service.Service):
         log.msg('Starting Aggregator')
         service.Service.startService(self)
 
-        self.readFeeds()
-
         self.schedule = {}
-        delay = 0
-        for feed in self.feeds.itervalues():
-            headers = {}
-            etag = feed.get('etag', None)
-            last_modified = feed.get('last-modified', None)
-            if etag:
-                headers['if-none-match'] = etag
-            if last_modified:
-                headers['if-modified-since'] = last_modified
 
-            self.schedule[feed['handle']] = self._callLater(delay,
-                                                            self.aggregate,
-                                                            feed, headers)
-            delay += 5
+        def scheduleFeeds(feeds):
+            delay = 5
+            for handle in feeds:
+                self.reschedule(delay, handle)
+                delay += 5
+
+        d = self.storage.getFeedList()
+        d.addCallback(scheduleFeeds)
 
     def stopService(self):
         log.msg('Stopping Aggregator')
@@ -147,60 +240,80 @@ class AggregatorService(service.Service):
         for call in calls:
             call.cancel()
 
-        self.writeFeeds()
-
-
     def setFeed(self, handle, url):
+        if not RE_HANDLE.match(handle):
+            return defer.fail(InvalidHandleError())
+
         try:
             self.schedule[handle].cancel()
         except KeyError:
             pass
 
-        feed =  {'handle': handle,
-                 'url': url}
-        self.feeds[handle] = feed
-        self.writeFeeds()
-        self.schedule[handle] = self._callLater(0, self.aggregate,
-                                                   feed,
-                                                   useCache=0)
+        def scheduleFeed(result):
+            if self.running:
+                self.reschedule(0, handle, useCache=0)
+            return result
 
-    def aggregate(self, feed, headers=None, useCache=1):
-        del self.schedule[feed['handle']]
-
-        d = defer.maybeDeferred(fetcher.getFeed, feed['url'], agent=self.agent,
-                                                 headers=headers,
-                                                 useCache=useCache)
-        d.addCallback(self.workOnFeed, feed)
-        d.addCallback(self.findFreshEntries, feed)
-        d.addCallback(self.updateCache, feed)
-        d.addErrback(self.notModified, feed)
-        d.addErrback(self.logNoFeed, feed)
-        d.addErrback(self.munchError, feed)
-        d.addBoth(self.reschedule, feed)
+        d = self.storage.setFeedURL(handle, url)
+        d.addCallback(scheduleFeed)
         return d
 
-    def workOnFeed(self, result, feed):
-        feed['etag'] = result.headers.get('etag', None)
-        feed['last-modified'] = result.headers.get('last-modified', None)
+    def aggregate(self, handle, useCache=1):
+        def aggregateFeed(cachedFeed):
+            headers = {}
+            if useCache:
+                etag = cachedFeed.get('etag', None)
+                updated = cachedFeed.get('updated', None)
+                if etag:
+                    headers['If-None-Match'] = str(etag)
+                if updated:
+                    short_weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri',
+                                      'Sat', 'Sun']
+                    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                    headers['If-Modified-Since'] = \
+                        '%s, %02d %s %04d %02d:%02d:%02d GMT' % (
+                                short_weekdays[updated[6]],
+                                updated[2],
+                                months[updated[1] - 1],
+                                updated[0],
+                                updated[3], updated[4], updated[5])
+
+            d = defer.maybeDeferred(fetcher.getFeed, str(cachedFeed['href']),
+                                                     agent=self.agent,
+                                                     headers=headers,
+                                                     useCache=useCache)
+            d.addCallback(self.workOnFeed, handle)
+            d.addCallback(self.findFreshEntries, handle, cachedFeed)
+            return d
+
+        d = self.storage.getFeed(handle)
+        d.addCallback(aggregateFeed)
+        d.addCallback(self.updateCache)
+        d.addErrback(self.notModified, handle)
+        d.addErrback(self.logNoFeed, handle)
+        d.addErrback(self.munchError, handle)
+        d.addBoth(lambda _: self.reschedule(INTERVAL, handle))
+        return d
+
+    def workOnFeed(self, result, handle):
+        result['handle'] = handle
 
         if result.status == '301':
             log.msg("%s: Feed's location changed permanently to %s" %
-                    (feed['handle'], result.url))
-            feed['url'] = result.url
-            self.writeFeeds()
+                    (handle, result.href))
+            self.storage.setFeedURL(handle, result.href)
 
         if result.feed:
-            log.msg("%s: Got feed." % feed["handle"])
-            if result.feed.get('title', None):
-                log.msg("%s: Title: %r " % (feed["handle"],
+            log.msg("%s: Got feed." % handle)
+            if 'title' in result.feed:
+                log.msg("%s: Title: %r " % (handle,
                                             result.feed.title))
         else:
-            log.msg("%s: Not a valid feed." % feed["handle"])
+            log.msg("%s: Not a valid feed." % handle)
 
         if result.bozo:
-            log.msg("%s: Bozo flag raised: %r: %s" % (feed["handle"],
-                                                      result.bozo_exception,
-                                                      result.bozo_exception))
+            log.err(result.bozo_exception, "%s: Bozo flag raised" % handle)
 
         for entry in result.entries:
             if 'id' not in entry and 'link' in entry:
@@ -208,60 +321,71 @@ class AggregatorService(service.Service):
 
         return result
 
-    def findFreshEntries(self, f, feed):
+    def findFreshEntries(self, result, handle, cachedFeed):
         def add(entry, kind):
-            log.msg("%s: Found %s entry" % (feed["handle"], kind))
-            log.msg("%s:   id: %s" % (feed["handle"], entry.id))
+            log.msg("%s: Found %s entry" % (handle, kind))
+            log.msg("%s:   id: %s" % (handle, entry.id))
             if 'title' in entry:
-                log.msg("%s:   title (%s): %r" % (feed["handle"],
+                log.msg("%s:   title (%s): %r" % (handle,
                                                   entry.title_detail.type,
                                                   entry.title_detail.value))
-            new_entries.append(entry)
+            discoveredEntries.append(entry)
 
-        cache = feed.get('cache', {})
+        cacheIndexes = cachedFeed.get('indexes', {})
 
-        new_cache = {}
-        new_entries = []
-        for entry in reversed(f.entries):
+        newCacheIndexes = {}
+        discoveredEntries = []
+
+        index = len(result.entries)
+        for entry in reversed(result.entries):
+            index -= 1
+
             if 'id' not in entry:
                 continue
 
-            if entry.id not in cache:
+            if entry.id not in cacheIndexes:
                 add(entry, 'new')
-            elif cache[entry.id] != entry:
-                add(entry, 'updated')
+            else:
+                jsonEntry = simplejson.dumps(entry, cls=FeedParserEncoder)
+                newEntry = simplejson.loads(jsonEntry)
+                if cachedFeed['entries'][cacheIndexes[entry.id]] != newEntry:
+                    add(entry, 'updated')
 
-            new_cache[entry.id] = entry
+            newCacheIndexes[entry.id] = index
 
-        if new_entries:
-            d = self.handler.entriesDiscovered(feed["handle"], new_entries)
+        result['indexes'] = newCacheIndexes
+
+        if discoveredEntries:
+            d = self.handler.entriesDiscovered(handle, result,
+                                               discoveredEntries)
         else:
             d = defer.succeed(None)
 
-        d.addCallback(lambda _: new_cache)
+        d.addCallback(lambda _: result)
         return d
 
-    def updateCache(self, new_cache, feed):
-        log.msg("%s: updating cache" % feed["handle"])
-        feed['cache'] = new_cache
+    def updateCache(self, result):
+        log.msg("%s: updating cache" % result["handle"])
+        return self.storage.storeFeed(result)
 
-    def notModified(self, failure, feed):
+    def notModified(self, failure, handle):
         failure.trap(fetcher.NotModified)
-        log.msg("%s: Not Modified" % feed["handle"])
+        log.msg("%s: Not Modified" % handle)
 
-    def reschedule(self, void, feed):
-        self.schedule[feed['handle']] = self._callLater(INTERVAL,
-                                                        self.aggregate,
-                                                        feed)
+    def reschedule(self, delay, handle, useCache=1):
+        def cb():
+            del self.schedule[handle]
+            self.aggregate(handle, useCache=useCache)
 
-    def logNoFeed(self, failure, feed):
+        self.schedule[handle] = self._callLater(delay, cb)
+
+    def logNoFeed(self, failure, handle):
         failure.trap(error.Error)
-        log.msg("%s: No feed: %s" % feed["handle"])
-        log.err(failure)
+        log.err(failure, "%s: No feed" % handle)
 
-    def munchError(self, failure, feed):
-        log.msg("%s: unhandled error:" % feed["handle"])
-        log.err(failure)
+    def munchError(self, failure, handle):
+        log.err(failure, "%s: Unhandled Error" % handle)
+
 
 class XMPPControl(XMPPHandler):
 
@@ -278,23 +402,68 @@ class XMPPControl(XMPPHandler):
 
         iq.handled = True
 
-        if handle and url:
-            try:
-                self.service.setFeed(handle, url)
-            except Exception, e:
-                print e
-                iq = StanzaError('internal-error').toResponse(iq)
-            else:
-                iq.swapAttributeValues('to', 'from')
-                iq["type"] = 'result'
-                iq.children = []
-        else:
-            iq = StanzaError('bad-request').toResponse(iq)
+        def success(_):
+            return xmlstream.toResponse(iq, 'result')
 
-        self.send(iq)
+        def trapInvalidHandle(failure):
+            failure.trap(InvalidHandleError)
+            raise StanzaError('bad-request', text='Invalid handle')
+
+        def error(failure):
+            if failure.check(StanzaError):
+                exc = failure.value
+            else:
+                log.err(failure)
+                exc = StanzaError('internal-error')
+            return exc.toResponse(iq)
+
+        if handle and url:
+            d = self.service.setFeed(handle, url)
+            d.addCallback(success)
+            d.addErrback(trapInvalidHandle)
+        else:
+            d = defer.fail(StanzaError('bad-request'))
+
+        d.addErrback(error)
+        d.addCallback(self.send)
 
 components.registerAdapter(XMPPControl, IAggregatorService,
                                         IXMPPHandler)
+
+
+class AddFeedResource(resource.Resource):
+    """
+    Resource to add a new feed to be aggregated.
+    """
+
+    def __init__(self, service):
+        self.service = service
+
+    http_GET = None
+
+    def http_POST(self, request):
+        def gotRequest(result):
+            url = result['url']
+            handle = result['handle']
+            return self.service.setFeed(handle, url)
+
+        def createResponse(result):
+            return http.Response(responsecode.OK)
+
+        def trapInvalidHandle(failure):
+            failure.trap(InvalidHandleError)
+            return http.StatusResponse(responsecode.BAD_REQUEST,
+                                       """Invalid handle""")
+
+        data = []
+        d = readStream(request.stream, data.append)
+        d.addCallback(lambda _: data)
+        d.addCallback(simplejson.loads)
+        d.addCallback(gotRequest)
+        d.addCallback(createResponse)
+        d.addErrback(trapInvalidHandle)
+        return d
+
 
 class AtomPublisher(object):
 
@@ -303,17 +472,27 @@ class AtomPublisher(object):
     def __init__(self, protocol):
         self.protocol = protocol
         self.service = None
-        self.writer = writer.AtomWriter()
+        self.writer = writer.ReconstituteWriter()
 
-    def entriesDiscovered(self, handle, entries):
+    def entriesDiscovered(self, handle, feed, entries):
         log.msg("%s: publishing items" % handle)
 
         node = 'mimir/news/%s' % handle
 
-        items = [pubsub.Item(entry.id, self.writer.generate(entry))
-                 for entry in entries]
+        items = []
+        for entry in entries:
+            try:
+                entryDoc = self.writer.generate(feed, entry)
+            except domish.ParserError:
+                log.err(None, '%s: Error processing entry: %r' % (handle,
+                                                                  entry.title))
+            else:
+                items.append(pubsub.Item(entry.id, entryDoc))
 
-        return self.protocol.publish(self.service, node, items)
+        if items:
+            return self.protocol.publish(self.service, node, items)
+        else:
+            return defer.succeed(None)
 
 components.registerAdapter(AtomPublisher, pubsub.IPubSubClient,
                                           IFeedHandler)

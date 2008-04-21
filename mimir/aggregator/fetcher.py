@@ -9,12 +9,15 @@ HTTP, that are subsequently parsed using the Universal Feed Parser.
 """
 
 import copy
-import feedparser
+from planet import feedparser, scrub
 
 from twisted.internet import defer, reactor
 from twisted.web import client
 
 feeds = ['http://test.ralphm.net/blog/atom']
+
+feedparser.SANITIZE_HTML = 0
+feedparser.RESOLVE_RELATIVE_URIS = 0
 
 class NotModified(Exception):
     pass
@@ -71,7 +74,7 @@ class HTTPFeedGetter(client.HTTPPageGetter):
                 cache['last-modified'] = rd[-1]
 
             self.factory.cache[self.factory.original_url] = cache
-       
+
         # Act like a normal HTTPPageGetter
         client.HTTPPageGetter.handleResponse(self, response)
 
@@ -93,6 +96,9 @@ class HTTPFeedGetter(client.HTTPPageGetter):
     def handleStatus_304(self):
         """ Handle status 304: Not Modified. """
         self.factory.noPage(NotModified())
+
+    handleStatus_307 = handleStatus_302
+
 
 class HTTPClientFeedFactory(client.HTTPClientFactory):
     """
@@ -120,12 +126,12 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
             etag = cached.get('etag', None)
             last_modified = cached.get('last-modified', None)
             if etag:
-                headers.setdefault('if-none-match', etag)
+                headers.setdefault('If-None-Match', etag)
             if last_modified:
-                headers.setdefault('if-modified-since', last_modified)
+                headers.setdefault('If-Modified-Since', last_modified)
 
-        headers.setdefault('accept-encoding', 'gzip, deflate')
-        headers.setdefault('accept', feedparser.ACCEPT_HEADER)
+        headers.setdefault('Accept-Encoding', 'gzip, deflate')
+        headers.setdefault('Accept', feedparser.ACCEPT_HEADER)
 
         client.HTTPClientFactory.__init__(self, url=url, method=method,
                 postdata=postdata, headers=headers, agent=agent,
@@ -137,7 +143,13 @@ class HTTPClientFeedFactory(client.HTTPClientFactory):
             resource = FeedResource(page, self.url,
                                     self.real_status or self.status,
                                     self.response_headers)
+
+            def doScrub(data):
+                scrub.scrub(self.url, data)
+                return data
+
             d = defer.maybeDeferred(feedparser.parse, resource)
+            d.addCallback(doScrub)
             d.chainDeferred(self.deferred)
 
 def getFeed(url, contextFactory=None, *args, **kwargs):

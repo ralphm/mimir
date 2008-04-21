@@ -17,8 +17,8 @@ class AtomWriter(object):
     """
     Writer that generates entries that adhere to the Atom specification.
     """
-    
-    def generate(self, entry):
+
+    def generate(self, feed, entry):
         """
         Generate an Atom entry from a feedparser entry.
 
@@ -36,7 +36,7 @@ class AtomWriter(object):
                 method = getattr(self, methodname)
             except AttributeError:
                 continue
-            
+
             result = method(value)
 
             if not isinstance(result, list):
@@ -144,7 +144,7 @@ class AtomWriter(object):
             elements.append(element)
 
         return elements
-    
+
     def _generate_title_detail(self, data):
         return self.generate_text('title', data)
 
@@ -156,7 +156,7 @@ class MimirWriter(object):
     Writer that generates entries using a custom XML representation.
     """
 
-    def generate(self, entry):
+    def generate(self, feed, entry):
         news = domish.Element(('mimir:news', 'news'))
 
         if 'title' in entry:
@@ -187,3 +187,47 @@ class MimirWriter(object):
             news.addElement('description', content=value)
 
         return news
+
+class StringParser(object):
+    """
+    Parses a string with serialized XML into a DOM.
+    """
+    def __init__(self):
+        self.elementStream = domish.elementStream()
+        self.elementStream.DocumentStartEvent = self.docStart
+        self.elementStream.ElementEvent = self.elem
+        self.elementStream.DocumentEndEvent = self.docEnd
+        self.done = False
+
+
+    def docStart(self, elem):
+        self.document = elem
+
+
+    def elem(self, elem):
+        self.document.addChild(elem)
+
+
+    def docEnd(self):
+        self.done = True
+
+
+    def parse(self, string):
+        self.elementStream.parse(string)
+        if not self.done:
+            raise Exception("Incomplete XML document input")
+        return self.document
+
+
+
+class ReconstituteWriter(object):
+    """
+    Writer that generates Atom entries using Venus' reconsitute module.
+    """
+
+    def generate(self, feed, entry):
+        from planet.reconstitute import reconstitute
+
+        xdoc = reconstitute(feed, entry)
+        xml = xdoc.documentElement.toxml()
+        return StringParser().parse(xml.encode('utf-8'))

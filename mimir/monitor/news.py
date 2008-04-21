@@ -21,8 +21,9 @@ NS_ATOM = 'http://www.w3.org/2005/Atom'
 class FeedParserEncoder(simplejson.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, time.struct_time):
-            return dict([(attr, getattr(obj, attr)) for attr in dir(obj)
-                                                  if attr.startswith('tm_')])
+            return tuple(obj)
+        elif isinstance(obj, Exception):
+            return failure.Failure(obj).getTraceback()
         else:
             return simplejson.JSONEncoder.default(self, obj)
 
