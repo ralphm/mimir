@@ -509,7 +509,7 @@ class AtomPublisher(object):
         def trapConflict(failure, node):
             failure.trap(StanzaError)
             exc = failure.value
-            if exc.condtion != 'conflict':
+            if exc.condition != 'conflict':
                 return failure
             else:
                 return node
