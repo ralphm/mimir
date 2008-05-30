@@ -1,9 +1,12 @@
-# Copyright (c) 2005-2006 Ralph Meijer
+# Copyright (c) 2005-2008 Ralph Meijer
 # See LICENSE for details
 
-from twisted.scripts.mktap import _tapHelper
+try:
+    from twisted.application.service import ServiceMaker
+except ImportError:
+    from twisted.scripts.mktap import _tapHelper as ServiceMaker
 
-MimirAggregator = _tapHelper(
+mimirAggregator = ServiceMaker(
         "Mimir Aggregator",
         "mimir.aggregator.tap",
         "Mimir Feed Aggregator and Feeder",
