@@ -52,7 +52,8 @@ def makeService(config):
                                    database=config["dbname"],
                                    client_encoding='utf-8',
                                    cp_min = 1,
-                                   cp_max = 1
+                                   cp_max = 1,
+                                   cp_reconnect=True,
                                    )
 
     ms = presence.Storage(dbpool)
