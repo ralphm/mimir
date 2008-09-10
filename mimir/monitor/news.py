@@ -1,4 +1,6 @@
-# Copyright (c) 2005-2007 Ralph Meijer
+# -*- test-case-name: mimir.monitor.test.test_news -*-
+#
+# Copyright (c) 2005-2008 Ralph Meijer
 # See LICENSE for details
 
 import re, time
@@ -298,15 +300,15 @@ class XMPPHandlerFromService(pubsub.PubSubClient):
         print "Sending: %r" % message.toXml()
         self.send(message)
 
-    def itemsReceived(self, recipient, service, nodeIdentifier, items):
-        m = re.match(r"^mimir/news/(.+)$", nodeIdentifier)
+    def itemsReceived(self, event):
+        m = re.match(r"^mimir/news/(.+)$", event.nodeIdentifier)
 
         if not m:
             return
 
         channel = m.group(1)
 
-        entries = (item.entry for item in items
+        entries = (item.entry for item in event.items
                               if item.entry and item.entry.uri == NS_ATOM)
 
         self.service.process(channel, entries)

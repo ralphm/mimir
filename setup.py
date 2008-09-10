@@ -4,9 +4,10 @@
 # See LICENSE for details.
 
 from setuptools import setup
+from mimir import __version__
 
 setup(name='mimir',
-      version='0.5.0',
+      version=__version__,
       description=u'Mimir daemons',
       author='Ralph Meijer',
       author_email='ralphm@ik.nu',
@@ -22,7 +23,8 @@ setup(name='mimir',
       package_data={'twisted.plugins': ['twisted/plugins/mimir_aggregator.py',
                                         'twisted/plugins/mimir_monitor.py']},
       data_files=[('share/mimir', ['db/monitor.sql'])],
-      install_requires = ['wokkel >= 0.3.1',
+      zip_safe=False,
+      install_requires = ['wokkel >= 0.4.0',
                           'simplejson',
-                          'feedparser'],
+                          'FeedParser'],
 )

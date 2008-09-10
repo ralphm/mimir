@@ -29,11 +29,9 @@ from wokkel import pubsub
 from wokkel.iwokkel import IXMPPHandler
 from wokkel.subprotocols import XMPPHandler
 
-
+from mimir import __version__
 from mimir.aggregator import fetcher, writer
 from mimir.monitor.news import FeedParserEncoder
-
-__version__ = "0.5.0"
 
 INTERVAL = 1800
 NS_AGGREGATOR = 'http://mimir.ik.nu/protocol/aggregator'

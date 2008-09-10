@@ -1,0 +1,10 @@
+0.5.1 (2008-09-10)
+==================
+
+ - Let news monitor reconnect to the database if the connection was lost.
+
+
+0.5.0 (2008-05-30)
+==================
+
+First release.
