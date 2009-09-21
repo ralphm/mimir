@@ -153,12 +153,13 @@ class FileFeedStorage(object):
         try:
             feedFile = self.feedsDir.child("%s.feed.json" % handle)
 
-            if not feedFile.exists():
-                feed = self.feeds[handle]
-            else:
+            feed = self.feeds[handle]
+            if feedFile.exists():
                 fh = feedFile.open()
                 try:
                     feed = simplejson.load(fh)
+                except ValueError:
+                    pass
                 finally:
                     fh.close()
         except:
