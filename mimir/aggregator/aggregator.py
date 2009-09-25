@@ -286,13 +286,18 @@ class AggregatorService(service.Service):
             d.addCallback(self.findFreshEntries, handle, cachedFeed)
             return d
 
+        def setInterval(feed):
+            if 'interval' not in feed:
+                feed['interval'] = INTERVAL
+
         d = self.storage.getFeed(handle)
         d.addCallback(aggregateFeed)
+        d.addCallback(setInterval)
         d.addCallback(self.updateCache)
         d.addErrback(self.notModified, handle)
         d.addErrback(self.logNoFeed, handle)
         d.addErrback(self.munchError, handle)
-        d.addBoth(lambda _: self.reschedule(INTERVAL, handle))
+        d.addBoth(lambda feed: self.reschedule(feed['interval'], handle))
         return d
 
     def workOnFeed(self, result, handle):

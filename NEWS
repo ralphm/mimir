@@ -1,3 +1,10 @@
+0.6.0 (2009-09-25)
+==================
+
+ - Provide fix for bad JSON (e.g. empty files).
+ - Allow configurable polling interval per feed.
+
+
 0.5.1 (2008-09-10)
 ==================
 
