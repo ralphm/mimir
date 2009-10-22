@@ -261,8 +261,16 @@ class AggregatorService(service.Service):
         return d
 
     def aggregate(self, handle, useCache=1):
+        def setInterval(feed, cachedFeed):
+            feed['interval'] = cachedFeed['interval']
+            return feed
+
         def aggregateFeed(cachedFeed):
             headers = {}
+
+            if 'interval' not in cachedFeed:
+                cachedFeed['interval'] = INTERVAL
+
             if useCache:
                 etag = cachedFeed.get('etag', None)
                 updated = cachedFeed.get('updated', None)
@@ -287,21 +295,16 @@ class AggregatorService(service.Service):
                                                      useCache=useCache)
             d.addCallback(self.workOnFeed, handle)
             d.addCallback(self.findFreshEntries, handle, cachedFeed)
+            d.addCallback(setInterval, cachedFeed)
+            d.addCallback(self.updateCache)
+            d.addErrback(self.notModified, handle)
+            d.addErrback(self.logNoFeed, handle)
+            d.addErrback(self.munchError, handle)
+            d.addBoth(lambda _: self.reschedule(cachedFeed['interval'], handle))
             return d
-
-        def setInterval(feed):
-            if 'interval' not in feed:
-                feed['interval'] = INTERVAL
-            return feed
 
         d = self.storage.getFeed(handle)
         d.addCallback(aggregateFeed)
-        d.addCallback(setInterval)
-        d.addCallback(self.updateCache)
-        d.addErrback(self.notModified, handle)
-        d.addErrback(self.logNoFeed, handle)
-        d.addErrback(self.munchError, handle)
-        d.addBoth(lambda feed: self.reschedule(feed['interval'], handle))
         return d
 
     def workOnFeed(self, result, handle):
