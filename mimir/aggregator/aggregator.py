@@ -1,4 +1,4 @@
-# Copyright (c) 2005-2007 Ralph Meijer
+# Copyright (c) 2005-2009 Ralph Meijer
 # See LICENSE for details
 
 """
@@ -157,9 +157,10 @@ class FileFeedStorage(object):
             if feedFile.exists():
                 fh = feedFile.open()
                 try:
-                    feed = simplejson.load(fh)
-                except ValueError:
-                    pass
+                    try:
+                        feed = simplejson.load(fh)
+                    except ValueError:
+                        pass
                 finally:
                     fh.close()
         except:
@@ -184,7 +185,9 @@ class FileFeedStorage(object):
         except:
             return defer.fail()
         else:
-            return defer.succeed(None)
+            return defer.succeed(feed)
+
+
 
 class AggregatorService(service.Service):
     """
@@ -289,6 +292,7 @@ class AggregatorService(service.Service):
         def setInterval(feed):
             if 'interval' not in feed:
                 feed['interval'] = INTERVAL
+            return feed
 
         d = self.storage.getFeed(handle)
         d.addCallback(aggregateFeed)
