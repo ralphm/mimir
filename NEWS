@@ -1,3 +1,9 @@
+0.6.3 (2012-05-10)
+
+ - Additional fixes for polling interval changes.
+ - Make sure 'twisted' isn't added to the egg's top_level.txt.
+ - Reload the twisted plugin cache.
+
 0.6.2 (2009-09-25)
 ==================
 
